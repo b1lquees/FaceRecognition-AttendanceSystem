@@ -1,6 +1,7 @@
 # Face Recognition Attendance System
 
 THIS PROJECT IS STILL IN PROGRESS
+
 A web-based attendance system that identifies people from a live webcam feed and records
 their attendance automatically. Built with Flask, `face_recognition` (dlib), OpenCV and SQLite.
 
