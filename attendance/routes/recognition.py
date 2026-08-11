@@ -9,6 +9,7 @@ import numpy as np
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
 from ..attendance_db import check_in, check_out, get_student_id
+from ..audit import audit
 from ..auth_db import get_linked_student_id
 from ..decorators import login_required
 from ..liveness import LivenessUnavailable, is_live
@@ -122,9 +123,11 @@ def recognize():
             return result("liveness_error")
 
         if not accepted:
-            current_app.logger.warning(
-                "liveness rejected a face: label=%s live_score=%.3f", label, live_score
-            )
+            # audited, not just logged: a run of these is somebody standing at the camera
+            # holding a photograph up, which is exactly the thing worth being able to
+            # find afterwards. the score is recorded so a pattern of near-misses can be
+            # told apart from a blatant attempt when tuning the threshold.
+            audit("liveness.refused", label=label, score=f"{live_score:.2f}")
             return result("spoof")
 
     face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)

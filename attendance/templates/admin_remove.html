@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block title %}Remove {{ name }}?{% endblock %}
+{% set active_page = 'enrol' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Administration</div>
+    <h1>Remove {{ name }}?</h1>
+    <p class="subtitle">This cannot be undone from here</p>
+</header>
+
+<div class="card">
+    <div class="card-body">
+        <div class="flash flash-warn">
+            <strong>{{ photo_count }} photo{{ '' if photo_count == 1 else 's' }}</strong>
+            and the face data derived from them will be deleted. {{ name }} will no
+            longer be recognised by the camera.
+        </div>
+
+        {# said explicitly because it is the question an admin will have, and because the
+           opposite behaviour would be worse: deleting the days somebody attended is
+           falsifying a record, not un-enrolling them #}
+        <p class="note">
+            Their <strong>attendance history is kept</strong>. Un-enrolling someone means
+            the system stops recognising them from now on; it does not mean they were
+            never here. To enrol them again later you will need their photos again.
+        </p>
+
+        <form method="POST" class="confirm-actions">
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="name" value="{{ name }}">
+            <button class="btn btn-danger" type="submit">Yes, remove {{ name }}</button>
+            <a class="btn" href="{{ url_for('admin.enrol_person') }}">Cancel</a>
+        </form>
+    </div>
+</div>
+{% endblock %}

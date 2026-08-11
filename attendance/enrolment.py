@@ -9,6 +9,7 @@ to get a file into known_faces/ was to already be on the machine.
 """
 
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -113,6 +114,59 @@ def encode_photo(data, filename=""):
         raise EnrolmentError(f"{label}: {len(encodings)} faces found, need exactly one.")
 
     return encodings[0]
+
+
+def person_directory(name):
+    """Where a person's photos live, checked to be inside known_faces/.
+
+    validate_name() already refuses anything with a separator in it, so this cannot
+    normally escape. It is checked again anyway because the caller of this is about to
+    delete a directory tree, and a path bug there is unrecoverable rather than merely
+    wrong. Two cheap checks are worth it when the cost of being wrong is somebody's
+    photos, or worse, something else entirely.
+    """
+    root = KNOWN_FACES_DIR.resolve()
+    target = (KNOWN_FACES_DIR / name).resolve()
+
+    # must be a DIRECT child, not merely somewhere underneath. "somewhere underneath"
+    # would accept "a/b", which resolves inside known_faces but is not a person's folder
+    # and should never be deleted by this. A person's directory is always exactly one
+    # level down, so requiring that is both stricter and easier to be sure about.
+    # It also rejects ".." and "", whose parents are outside root entirely.
+    if target.parent != root:
+        raise EnrolmentError(f"Refusing to touch a path outside known_faces: {name!r}")
+
+    return target
+
+
+def remove_person(name):
+    """Delete a person's photos and encodings. Returns how many photos went.
+
+    Their attendance history is deliberately kept. Un-enrolling somebody means the system
+    should stop recognising them; it does not mean they were never here. Deleting the
+    record of days they attended would be falsifying it, and that is a different action
+    that nothing here offers.
+    """
+    name = validate_name(name)
+
+    known = load_known_encodings()
+    if name not in known:
+        raise EnrolmentError(f"{name!r} is not enrolled.")
+
+    directory = person_directory(name)
+    photo_count = len(list(directory.iterdir())) if directory.is_dir() else 0
+
+    # encodings first. if this succeeds and the rmtree then fails, the result is orphaned
+    # photos on disk, which is untidy. The other order risks deleted photos with live
+    # encodings, which means a person who cannot be re-enrolled but is still recognised.
+    del known[name]
+    save_known_encodings(known)
+
+    if directory.is_dir():
+        shutil.rmtree(directory)
+
+    reload_known_encodings()
+    return photo_count
 
 
 def enrol(name, photos):

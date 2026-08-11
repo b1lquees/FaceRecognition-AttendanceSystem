@@ -71,6 +71,10 @@
                 <span class="avatar">{{ person[0]|upper }}</span>
                 <span>{{ person }}</span>
             </span>
+            {# a link to a confirmation page, not a delete button. one misclick should not
+               destroy somebody's photos, and a GET that deletes would be worse still #}
+            <a class="btn btn-small btn-danger"
+               href="{{ url_for('admin.remove_enrolled_person', name=person) }}">Remove</a>
         </li>
         {% endfor %}
     </ul>

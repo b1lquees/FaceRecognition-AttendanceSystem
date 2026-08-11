@@ -3,7 +3,8 @@
 from flask import Blueprint, current_app, flash, redirect, render_template, request, url_for
 
 from ..attendance_db import list_students
-from ..enrolment import MAX_PHOTOS, EnrolmentError, enrol
+from ..audit import audit
+from ..enrolment import MAX_PHOTOS, EnrolmentError, enrol, remove_person
 from ..recognition import get_known_encodings
 from ..auth_db import (
     approve_user,
@@ -36,6 +37,7 @@ def users():
 @admin_required
 def approve(user_id):
     if approve_user(user_id):
+        audit("account.approved", target_id=user_id)
         flash("Account approved.", "success")
     else:
         # either the id doesn't exist or it was already approved -- both mean "nothing
@@ -48,6 +50,7 @@ def approve(user_id):
 @admin_required
 def reject(user_id):
     if reject_user(user_id):
+        audit("account.rejected", target_id=user_id)
         flash("Account rejected and removed.", "success")
     else:
         flash("That account could not be rejected.", "error")
@@ -83,6 +86,7 @@ def enrol_person():
                 max_photos=MAX_PHOTOS,
             ), 400
 
+        audit("person.enrolled", person=name, photos=added, rejected=len(problems))
         flash(f"Enrolled {name}: {added} photo{'' if added == 1 else 's'} added.", "success")
         for problem in problems:
             # partial success is still success, but the admin needs to know which photos
@@ -94,6 +98,42 @@ def enrol_person():
         "admin_enrol.html",
         enrolled=sorted(get_known_encodings()),
         max_photos=MAX_PHOTOS,
+    )
+
+
+@admin_bp.route("/enrol/remove", methods=["GET", "POST"])
+@admin_required
+def remove_enrolled_person():
+    """Stop recognising someone, after confirming.
+
+    Two steps on purpose. Deleting somebody's photos is not undoable from the interface,
+    and a single button next to their name is one misclick away from doing it. The GET
+    shows what will happen; only the POST does it.
+    """
+    name = (request.values.get("name") or "").strip()
+
+    if request.method == "POST":
+        try:
+            photos = remove_person(name)
+        except EnrolmentError as error:
+            flash(str(error), "error")
+            return redirect(url_for("admin.enrol_person"))
+
+        audit("person.removed", person=name, photos=photos)
+        flash(
+            f"Removed {name}: {photos} photo{'' if photos == 1 else 's'} deleted. "
+            "Their attendance history has been kept.",
+            "success",
+        )
+        return redirect(url_for("admin.enrol_person"))
+
+    known = get_known_encodings()
+    if name not in known:
+        flash(f"{name!r} is not enrolled.", "error")
+        return redirect(url_for("admin.enrol_person"))
+
+    return render_template(
+        "admin_remove.html", name=name, photo_count=len(known[name])
     )
 
 
@@ -111,6 +151,7 @@ def link(user_id):
     student_id = int(raw) if raw.isdigit() else None
 
     if link_user_to_student(user_id, student_id):
+        audit("account.linked", target_id=user_id, student_id=student_id or "none")
         flash("Linked account updated." if student_id else "Account unlinked.", "success")
     else:
         flash("That account could not be updated.", "error")

@@ -204,7 +204,7 @@ Open <http://127.0.0.1:5000/login>, sign in, then go to `/camera`.
 | `/attendance/all` | any user | Full archive |
 | `/attendance/export` | **admin** | CSV download |
 | `/admin/users` | **admin** | Approve or reject access requests |
-| `/admin/enrol` | **admin** | Add a person by uploading photos |
+| `/admin/enrol` | **admin** | Add or remove a person |
 
 ### Checking in and out
 
@@ -317,6 +317,14 @@ python scripts/create_user.py alice --role admin
 Accounts created that way are approved immediately — someone who already has shell access
 does not need to ask themselves for permission.
 
+Security-relevant actions are written to an audit log ([attendance/audit.py](attendance/audit.py)): logins and failures, signups, approvals, rejections, account
+linking, enrolment, removal, and refused spoof attempts — each with who did it and
+from where. Passwords, tokens and face encodings are never logged.
+
+Removing someone from `/admin/enrol` deletes their photos and face data but **keeps
+their attendance history**. Un-enrolling means the system stops recognising them from
+now on; it does not mean they were never there.
+
 Every `POST` is CSRF-protected by a token stored in the session
 ([attendance/security.py](attendance/security.py)). Forms carry it in a hidden field;
 `/recognize` sends JSON, so it sends the same value as an `X-CSRF-Token` header.
@@ -337,6 +345,8 @@ deployment; anything larger wants Flask-Limiter backed by Redis so the count is 
 | `FLASK_ENV` | unset | Set to `production` to make a missing secret key a hard error, and to require HTTPS for the session cookie. |
 | `LIVENESS_ENABLED` | `0` (off) | Anti-spoofing. Calibrate before turning on — see below. |
 | `LIVENESS_THRESHOLD` | `0.0` | Score above which a face counts as real. Higher is stricter. |
+| `LOG_LEVEL` | `INFO` | The audit trail is logged at INFO; raising this discards it. |
+| `LOG_FILE` | unset | Also write a rotating log file. Unset means stderr only. |
 | `KIOSK_MODE` | `1` (on) | `1` for a shared door camera, `0` for personal check-in. See below. |
 | `ATTENDANCE_DB` | `attendance.db` | Path to the SQLite database. The test suite points this at a temporary file. |
 

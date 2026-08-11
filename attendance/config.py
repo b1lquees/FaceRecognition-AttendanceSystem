@@ -134,6 +134,16 @@ class Config:
     # There is no universally right value -- it depends on the camera and the lighting.
     LIVENESS_THRESHOLD = env_float("LIVENESS_THRESHOLD", default=0.0)
 
+    # --- logging ---
+    # INFO because the audit trail is logged at INFO; raising this to WARNING keeps
+    # the errors and throws away the record of who approved, enrolled or linked whom.
+    LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
+
+    # Unset means stderr only, which is what a container or systemd wants -- writing
+    # only to a file assumes something is there to read it. Set a path to also keep a
+    # rotating copy on disk.
+    LOG_FILE = os.environ.get("LOG_FILE") or None
+
     # the secret key signs session cookies. it is a classmethod rather than a plain
     # attribute so that nothing is read from the environment (or written to disk) until
     # an app is actually being built -- importing this module has no side effects.

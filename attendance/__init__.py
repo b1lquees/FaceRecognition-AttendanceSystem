@@ -35,6 +35,13 @@ def create_app(config=None):
     # an app is built, not when attendance.config is first imported
     app.config["SECRET_KEY"] = config.secret_key()
 
+    # before anything else that might want to log, and before the first request:
+    # Flask only attaches its own handler in debug mode, so a production server
+    # would otherwise be silent -- including the 500 handler's tracebacks.
+    from .audit import configure_logging
+
+    configure_logging(app)
+
     # every POST is CSRF-checked by default. doing it as a before_request hook rather
     # than a decorator means a newly added form is protected automatically instead of
     # being protected only if its author remembered to opt in.

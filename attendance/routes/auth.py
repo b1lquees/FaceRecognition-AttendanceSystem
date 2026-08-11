@@ -4,6 +4,7 @@ import sqlite3
 
 from flask import Blueprint, redirect, render_template, request, session, url_for
 
+from ..audit import audit
 from ..auth_db import register_pending_user, validate_credentials, verify_user
 from ..ratelimit import rate_limit
 
@@ -27,9 +28,11 @@ def login():
         if result.status == "ok":
             session["username"] = username
             session["role"] = result.role
+            audit("login.success", account=username, role=result.role)
             return redirect(url_for("main.home"))
 
         if result.status == "pending":
+            audit("login.pending", account=username)
             # the password was correct, so saying "invalid credentials" here would send
             # someone off resetting a password that works fine. no session is started.
             return render_template(
@@ -38,6 +41,9 @@ def login():
                 pending=True,
             ), 403
 
+        # the attempted username is recorded, never the password. repeated lines with
+        # the same ip are what a brute-force attempt looks like from here.
+        audit("login.failed", account=username)
         return render_template("login.html", error="Invalid username or password."), 401
 
     # a plain GET just displays the empty form
@@ -76,6 +82,7 @@ def signup():
                 username=username,
             ), 409
 
+        audit("signup.requested", account=username)
         # deliberately no session here: the whole point is that an admin decides
         return render_template("signup_submitted.html", username=username)
 
@@ -84,5 +91,6 @@ def signup():
 
 @auth_bp.route("/logout")
 def logout():
+    audit("logout")
     session.clear()  # removes all stored session data, so the user is no longer authenticated
     return redirect(url_for("auth.login"))

@@ -880,3 +880,18 @@ tbody tr:hover {
     font-variant-numeric: tabular-nums;
     color: var(--muted);
 }
+
+/* ---- confirmation pages ---------------------------------------------------- */
+.confirm-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-top: 18px;
+}
+
+/* the .btn base has no border, but the cancel link sits next to a solid danger
+   button and needs to read as the quieter of the two */
+.confirm-actions .btn:not(.btn-danger) {
+    background: var(--line-soft);
+    color: var(--text);
+}
