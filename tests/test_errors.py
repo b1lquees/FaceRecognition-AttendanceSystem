@@ -1,7 +1,5 @@
 import io
 
-from tests.test_enrolment import storage  # noqa: F401
-
 import pytest
 
 from attendance.config import Config

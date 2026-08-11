@@ -1,13 +1,15 @@
 import base64
+import glob
 
 import cv2
 import numpy as np
 import pytest
 
-from attendance import create_app
+from attendance import create_app, enrolment, recognition
 from attendance.auth_db import create_user
 from attendance.config import TestingConfig
 from attendance.db import create_schema
+from attendance.enrolment import EnrolmentError, encode_photo
 
 # CSRF protection is left switched on for the tests rather than disabled by a config
 # flag, so the real guard is what the tests run against. Seeding a known token into the
@@ -89,6 +91,38 @@ def recognises(monkeypatch):
         monkeypatch.setattr(route, "identify_face", lambda encoding, known: (name, distance))
 
     return _recognises
+
+
+# Lives here rather than in test_enrolment.py because test_errors.py needs it too, and a
+# fixture shared between test modules belongs in conftest. Importing it across modules
+# instead (`from tests.test_enrolment import storage`) works only when the project root
+# happens to be on sys.path -- true with one editable-install layout and not another, so
+# it passed locally and failed on CI with "No module named 'tests'".
+@pytest.fixture
+def storage(tmp_path, monkeypatch):
+    """Point the encoding cache and the photo directory at throwaway locations."""
+    monkeypatch.setattr(recognition, "ENCODINGS_FILE", tmp_path / "encodings.npz")
+    monkeypatch.setattr(enrolment, "KNOWN_FACES_DIR", tmp_path / "known_faces")
+    monkeypatch.setattr(recognition, "_known_encodings", None)
+    return tmp_path
+
+
+@pytest.fixture
+def face_photo():
+    """A real JPEG containing exactly one detectable face.
+
+    Taken from a real enrolment photo if one exists, otherwise the tests that need a
+    genuine face are skipped -- known_faces/ is gitignored, so CI has none. Everything
+    that does not need a real face is tested unconditionally.
+    """
+    for path in sorted(glob.glob("known_faces/*/*.jpg")):
+        data = open(path, "rb").read()
+        try:
+            encode_photo(data, path)
+        except EnrolmentError:
+            continue
+        return data
+    pytest.skip("no usable face photo available (known_faces/ is gitignored)")
 
 
 @pytest.fixture

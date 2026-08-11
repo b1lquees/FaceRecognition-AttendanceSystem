@@ -9,34 +9,7 @@ from attendance.attendance_db import list_students
 from attendance.enrolment import EnrolmentError, enrol, encode_photo, validate_name
 
 
-@pytest.fixture
-def face_photo():
-    """A real JPEG containing exactly one detectable face.
-
-    Built from a real enrolment photo if one exists, otherwise the tests that need a
-    genuine face are skipped -- known_faces/ is gitignored, so CI has none. Everything
-    that does not need a real face is tested unconditionally below.
-    """
-    import glob
-
-    candidates = sorted(glob.glob("known_faces/*/*.jpg"))
-    for path in candidates:
-        data = open(path, "rb").read()
-        try:
-            encode_photo(data, path)
-        except EnrolmentError:
-            continue
-        return data
-    pytest.skip("no usable face photo available (known_faces/ is gitignored)")
-
-
-@pytest.fixture
-def storage(tmp_path, monkeypatch):
-    """Point the encoding cache and the photo directory at throwaway locations."""
-    monkeypatch.setattr(recognition, "ENCODINGS_FILE", tmp_path / "encodings.npz")
-    monkeypatch.setattr(enrolment, "KNOWN_FACES_DIR", tmp_path / "known_faces")
-    monkeypatch.setattr(recognition, "_known_encodings", None)
-    return tmp_path
+# the storage and face_photo fixtures live in conftest.py, shared with test_errors.py
 
 
 def jpeg_bytes(width=64, height=48, colour=0):
