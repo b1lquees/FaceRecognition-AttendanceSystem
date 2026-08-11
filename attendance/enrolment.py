@@ -45,6 +45,17 @@ ALLOWED_SUFFIXES = {".jpg", ".jpeg", ".png"}
 MAX_PHOTO_BYTES = 5 * 1024 * 1024
 MAX_PHOTOS = 10
 
+# How large the whole upload is allowed to be.
+#
+# This has to be derived from the two limits above rather than picked separately. The
+# app-wide MAX_CONTENT_LENGTH is 8 MB, sized for a webcam frame, and enrolment invites
+# ten photos of 5 MB -- so the form was promising 50 MB through an 8 MB door. Three
+# ordinary phone photos were enough to hit it, and the rejection arrived as a bare 413
+# with no explanation, from a page that had just said 5 MB each was fine.
+#
+# The extra megabyte is multipart overhead: boundaries, headers and the name field.
+MAX_REQUEST_BYTES = MAX_PHOTOS * MAX_PHOTO_BYTES + 1024 * 1024
+
 
 class EnrolmentError(ValueError):
     """Something about the submission was wrong, in a way worth telling the user."""

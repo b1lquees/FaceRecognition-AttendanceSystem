@@ -64,6 +64,9 @@ def enrol_person():
     somebody else's name.
     """
     if request.method == "POST":
+        # the upload size limit for this route is raised in create_app, not here: it has
+        # to happen before the CSRF hook reads the form, which is earlier than any view
+
         # getlist, not get -- a single file input with `multiple` sends one field name
         # repeated, and .get() would silently take only the first
         uploads = [f for f in request.files.getlist("photos") if f and f.filename]

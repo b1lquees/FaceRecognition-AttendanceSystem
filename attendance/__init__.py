@@ -13,7 +13,7 @@ create_app() defers all of that until someone actually asks for an application, 
 test suite can build a throwaway one with its own config and its own database.
 """
 
-from flask import Flask
+from flask import Flask, request
 from .config import get_config
 
 
@@ -40,6 +40,18 @@ def create_app(config=None):
     # being protected only if its author remembered to opt in.
     from .security import csrf_token, verify_csrf
 
+    # Raise the upload limit for enrolment BEFORE the CSRF hook runs, and it has to be
+    # in that order. verify_csrf reads request.form, and reading the form is what pulls
+    # the body in and triggers the size check -- so a limit set inside the view arrives
+    # too late and a large upload 413s before any view executes. before_request handlers
+    # run in registration order, which is what makes this work.
+    from .enrolment import MAX_REQUEST_BYTES
+
+    @app.before_request
+    def allow_larger_enrolment_uploads():
+        if request.endpoint == "admin.enrol_person":
+            request.max_content_length = MAX_REQUEST_BYTES
+
     app.before_request(verify_csrf)
     app.jinja_env.globals["csrf_token"] = csrf_token  # so templates can call csrf_token()
 
@@ -49,6 +61,11 @@ def create_app(config=None):
 
     app.jinja_env.filters["short_time"] = short_time
     app.jinja_env.globals["duration"] = duration
+
+    # without these an error falls out of the site's design into a bare Werkzeug page
+    from .errors import register_error_handlers
+
+    register_error_handlers(app)
 
     # imported inside the function rather than at module level: the route modules import
     # from this package, so importing them at the top would be a circular import

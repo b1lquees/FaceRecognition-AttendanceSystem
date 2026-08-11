@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="empty">
+        <div class="empty-icon error-code">{{ code }}</div>
+        <h2>{{ title }}</h2>
+        <p>{{ message }}</p>
+
+        {# somewhere to go rather than a dead end. logged-out visitors get the login page,
+           since every other route would only bounce them there anyway. #}
+        {% if session.username %}
+        <a class="btn" href="{{ url_for('records.attendance_today') }}">Back to today's attendance</a>
+        {% else %}
+        <a class="btn" href="{{ url_for('auth.login') }}">Go to sign in</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
