@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}Accounts{% endblock %}
+{% set active_page = 'accounts' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Administration</div>
+    <h1>Accounts</h1>
+    <p class="subtitle">Approve or reject people who have requested access</p>
+</header>
+
+{# which check-in model is running changes what the linked-person column is for, so say
+   so rather than leaving an admin to guess why linking does or does not matter #}
+<div class="flash {{ 'flash-warn' if kiosk_mode else 'flash-success' }}">
+    {% if kiosk_mode %}
+    <strong>Kiosk mode.</strong> Anyone enrolled who is recognised is marked present,
+    whoever is signed in at the station. Linking an account to a person has no effect
+    until kiosk mode is turned off (<span class="mono">KIOSK_MODE=0</span>).
+    {% else %}
+    <strong>Personal check-in mode.</strong> People can only check themselves in. An
+    account must be linked to an enrolled person below, or it cannot check in at all.
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <span class="card-title">Waiting for approval</span>
+        <span class="pill pill-amber">{{ pending|length }}</span>
+    </div>
+
+    {% if pending %}
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th class="col-actions">Decision</th>
+                </tr>
+            </thead>
+            <tbody>
+                {# each row is a tuple (id, username) from list_pending_users() #}
+                {% for user_id, username in pending %}
+                <tr>
+                    <td>
+                        <div class="person">
+                            <span class="avatar">{{ username[0]|upper }}</span>
+                            <span>{{ username }}</span>
+                        </div>
+                    </td>
+                    <td class="col-actions">
+                        {# two separate forms because each posts to a different url.
+                           these are POSTs, not links: a GET could be triggered by any
+                           page embedding the url, and browsers follow those on their own #}
+                        <form method="POST"
+                              action="{{ url_for('admin.approve', user_id=user_id) }}">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-small btn-primary" type="submit">Approve</button>
+                        </form>
+                        <form method="POST"
+                              action="{{ url_for('admin.reject', user_id=user_id) }}">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <button class="btn btn-small btn-danger" type="submit">Reject</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">
+        <div class="empty-icon">&#10003;</div>
+        <p>No requests waiting.</p>
+    </div>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <span class="card-title">Active accounts</span>
+        <span class="pill">{{ approved|length }}</span>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Enrolled person</th>
+                </tr>
+            </thead>
+            <tbody>
+                {# each row is (id, username, role, student_id, student_name) -- the last
+                   two are NULL when the account has not been linked to anyone #}
+                {% for user_id, username, role, student_id, student_name in approved %}
+                <tr>
+                    <td>
+                        <div class="person">
+                            <span class="avatar">{{ username[0]|upper }}</span>
+                            <span>{{ username }}</span>
+                        </div>
+                    </td>
+                    <td>
+                        <span class="pill {{ 'pill-accent' if role == 'admin' }}">{{ role }}</span>
+                    </td>
+                    <td>
+                        <form method="POST" action="{{ url_for('admin.link', user_id=user_id) }}"
+                              class="link-form">
+                            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+                            <select name="student_id" aria-label="Enrolled person for {{ username }}">
+                                {# the empty option is how an account gets unlinked again #}
+                                <option value="">— not linked —</option>
+                                {% for sid, sname in students %}
+                                <option value="{{ sid }}" {{ 'selected' if sid == student_id }}>
+                                    {{ sname }}
+                                </option>
+                                {% endfor %}
+                            </select>
+                            <button class="btn btn-small" type="submit">Save</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <p class="note">
+        Roles are not editable here. Promoting someone to admin is deliberately a
+        command-line action:
+        <span class="mono">python scripts/create_user.py NAME --role admin</span>
+    </p>
+</div>
+{% endblock %}

@@ -1,0 +1,34 @@
+# Runtime dependencies
+#     pip install -r requirements.txt
+#     pip install --no-deps face-recognition==1.3.0
+
+#  web 
+Flask==3.1.3
+blinker==1.9.0 # signal/event support Flask uses internally
+click==8.4.2 # used by flask for cli flask run custom commands 
+itsdangerous==2.2.0
+Jinja2==3.1.6 # templating engine flask uses to render html pages w dynamic data
+MarkupSafe==3.0.3 # escapes strings safely for jinja2 to avoid xss from unescaped template variables 
+Werkzeug==3.1.8 # wsgi toolkit flask is built on dev server routing request/response objects
+colorama==0.4.6 #makes coloured terminal output work on windows pretty cli logs
+
+# face recognition
+dlib-bin==20.0.1 #prebuilt binary of dlib, the C++ library that actually does face detection and landmark/encoding extraction
+face_recognition_models==0.3.0 #ships the pretrained model files that dlib/face_recognition need 
+# face_recognition_models does `from pkg_resources import resource_filename` at
+# import time. pkg_resources ships with setuptools, which is NOT installed by
+# default in Python 3.12+ environments, and setuptools 81 removes it entirely 
+# so this is a real runtime dependency and the upper bound is load-bearing.
+setuptools<81 
+numpy==2.5.1  #face encodings are numpy arrays
+pillow==12.3.0 #image loading/manipulation (opening files, resizing, format conversion) — face_recognition uses it internally too
+opencv-python==5.0.0.93 
+
+
+# liveness / anti-spoofing
+# runs attendance/models/antispoof.onnx, which decides whether a detected face is a live
+# person or a photo held up to the camera. onnxruntime rather than pytorch because
+# running one small model is all that is needed, and pytorch would be a ~2 GB dependency.
+onnxruntime==1.28.0
+protobuf==7.35.1 # onnxruntime reads the model file, which is a protobuf
+flatbuffers==25.12.19 # onnxruntime uses it for its internal serialised format

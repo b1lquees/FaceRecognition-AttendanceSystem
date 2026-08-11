@@ -1,0 +1,20 @@
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+attendance.db
+encodings.npz
+encodings.npz.tmp*
+encodings.pkl
+known_faces/
+notes.txt
+
+.env
+.flask_secret_dev
+*.bak
+
+
+# python packaging build artefacts
+*.egg-info/
+build/
+dist/

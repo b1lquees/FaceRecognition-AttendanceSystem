@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+
+{% block title %}Request access{% endblock %}
+{% block wrapper_class %}auth-page{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+    <div class="auth-brand">
+        <span class="auth-mark" aria-hidden="true"></span>
+        <span>Attendance</span>
+    </div>
+
+    <h1>Request access</h1>
+    <p class="subtitle">
+        Choose a username and password. An administrator has to approve the account
+        before you can sign in.
+    </p>
+
+    {% if error %}
+    <div class="flash flash-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" novalidate>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+        <label class="field">
+            <span>Username</span>
+            {# these attributes mirror validate_credentials() in auth_db.py so the browser
+               can give instant feedback. they are a convenience, not a control -- the
+               server checks the same rules again, because anyone can post directly. #}
+            <input type="text" name="username" autocomplete="username" required autofocus
+                   minlength="3" maxlength="32" pattern="[A-Za-z0-9_.\-]+"
+                   value="{{ username or '' }}">
+            <small>3-32 characters: letters, numbers, dots, dashes, underscores.</small>
+        </label>
+
+        <label class="field">
+            <span>Password</span>
+            <input type="password" name="password" autocomplete="new-password" required
+                   minlength="8">
+            <small>At least 8 characters.</small>
+        </label>
+
+        <label class="field">
+            <span>Confirm password</span>
+            <input type="password" name="confirm_password" autocomplete="new-password"
+                   required minlength="8">
+        </label>
+
+        <button class="btn btn-primary btn-block" type="submit">Request access</button>
+    </form>
+
+    <p class="auth-alt">
+        Already approved? <a href="{{ url_for('auth.login') }}">Sign in</a>
+    </p>
+</div>
+{% endblock %}

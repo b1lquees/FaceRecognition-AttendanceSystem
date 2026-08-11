@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+
+{% block title %}Enrol a person{% endblock %}
+{% set active_page = 'enrol' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Administration</div>
+    <h1>Enrol a person</h1>
+    <p class="subtitle">Upload photos so the system can recognise someone</p>
+</header>
+
+{% if error %}
+<div class="flash flash-error" role="alert">{{ error }}</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-head">
+        <span class="card-title">Add photos</span>
+    </div>
+
+    <div class="card-body">
+        {# enctype is not optional: without it the browser sends only the filenames, and
+           request.files is empty with no error anywhere to explain why #}
+        <form method="POST" enctype="multipart/form-data" novalidate>
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+            <label class="field">
+                <span>Name</span>
+                <input type="text" name="name" required autofocus maxlength="64"
+                       value="{{ name or '' }}" placeholder="e.g. Alice Chen">
+                <small>
+                    This is the name attendance is recorded under. Enrolling a name that
+                    already exists adds more photos to that person.
+                </small>
+            </label>
+
+            <label class="field">
+                <span>Photos</span>
+                <input type="file" name="photos" required multiple accept=".jpg,.jpeg,.png">
+                <small>
+                    Up to {{ max_photos }} at a time, JPEG or PNG, 5 MB each. Each photo
+                    must contain <strong>exactly one face</strong> &mdash; a photo with
+                    nobody in it teaches nothing, and one with two people in it is
+                    ambiguous about which face is being enrolled.
+                </small>
+            </label>
+
+            <button class="btn btn-primary" type="submit">Enrol</button>
+        </form>
+
+        <p class="note">
+            Several photos work far better than one: different angles, distances and
+            lighting are what make recognition reliable when someone turns up looking
+            slightly different from the day they were enrolled.
+        </p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <span class="card-title">Already enrolled</span>
+        <span class="pill">{{ enrolled|length }}</span>
+    </div>
+
+    {% if enrolled %}
+    <ul class="session-list">
+        {% for person in enrolled %}
+        <li>
+            <span class="person">
+                <span class="avatar">{{ person[0]|upper }}</span>
+                <span>{{ person }}</span>
+            </span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <div class="empty">
+        <div class="empty-icon">&#128100;</div>
+        <p>Nobody is enrolled yet. Recognition will match nobody until someone is.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

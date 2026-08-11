@@ -1,0 +1,67 @@
+{# The shared page shell. Every other template starts with {% extends "base.html" %}
+   and fills in the blocks below, so the <head>, the nav and the flash messages exist in
+   exactly one place. Before this, each page repeated all three and they drifted apart.
+
+   A block is a named hole a child template can fill. If a child doesn't fill one, the
+   default content here is used. #}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8">
+    <!-- viewport tells phones to use the real screen width instead of pretending
+         to be a 980px desktop and zooming out -->
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Attendance{% endblock %}</title>
+    <!-- url_for('static', ...) asks flask to build the url for a file in static/
+         instead of hardcoding "/static/style.css" -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    {% block head_extra %}{% endblock %}
+</head>
+
+<body>
+    <div class="{% block wrapper_class %}page{% endblock %}">
+
+        {% block nav %}
+        {# session is available in every template without being passed in. the nav only
+           makes sense once you're logged in, so logged-out pages get nothing. #}
+        {% if session.username %}
+        <nav>
+            <a href="{{ url_for('records.attendance_today') }}"
+               class="{{ 'active' if active_page == 'today' }}">Today</a>
+            <a href="{{ url_for('records.attendance_all') }}"
+               class="{{ 'active' if active_page == 'all' }}">All Records</a>
+            <a href="{{ url_for('recognition.camera') }}"
+               class="{{ 'active' if active_page == 'camera' }}">Camera</a>
+            {% if session.role == 'admin' %}
+            <a href="{{ url_for('records.export_attendance') }}">Export CSV</a>
+            <a href="{{ url_for('admin.enrol_person') }}"
+               class="{{ 'active' if active_page == 'enrol' }}">Enrol</a>
+            <a href="{{ url_for('admin.users') }}"
+               class="{{ 'active' if active_page == 'accounts' }}">Accounts</a>
+            {% endif %}
+            <span class="nav-spacer"></span>
+            <span class="nav-who">{{ session.username }}</span>
+            <a href="{{ url_for('auth.logout') }}">Log out</a>
+        </nav>
+        {% endif %}
+        {% endblock %}
+
+        {# flashed messages are set by a route with flash() and survive exactly one
+           redirect, which is how the admin page reports what a POST did #}
+        {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        {% for category, message in messages %}
+        <div class="flash flash-{{ category }}">{{ message }}</div>
+        {% endfor %}
+        {% endif %}
+        {% endwith %}
+
+        {% block content %}{% endblock %}
+    </div>
+
+    {# scripts go last so the elements they reach for already exist in the document #}
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

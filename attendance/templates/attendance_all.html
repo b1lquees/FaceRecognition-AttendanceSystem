@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+
+{% block title %}All Attendance Records{% endblock %}
+{% set active_page = 'all' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Archive</div>
+    <h1>All Attendance Records</h1>
+    <p class="subtitle">Every row in attendance.db, newest first</p>
+</header>
+
+
+<div class="stats">
+    <div class="stat">
+        <span class="label">Total records</span>
+        <span class="value">{{ records|length }}</span>
+    </div>
+    <div class="stat">
+        <span class="label">People seen</span>
+        <!-- map(attribute=0) pulls index 0 (the name) out of every tuple, unique drops
+             repeats, list makes it countable again -> how many DIFFERENT people appear -->
+        <span class="value">{{ records|map(attribute=0)|unique|list|length }}</span>
+    </div>
+    <div class="stat">
+        <span class="label">Days recorded</span>
+        <!-- same trick on index 1 (the date) -->
+        <span class="value">{{ records|map(attribute=1)|unique|list|length }}</span> <!-- records is passed thru flask-->
+    </div>
+</div>
+
+<div class="card">
+    {% if records %}
+    <div class="card-head">
+        <span class="card-title">History</span>
+        <!-- oninput fires on every keystroke and calls filterRows() at the bottom of
+             the page. the filtering is pure javascript over rows the server already
+             sent - it never asks flask again -->
+        <input type="text" id="search" class="search" placeholder="Search name or date..."
+            oninput="filterRows()">
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Date</th>
+                    <th>In</th>
+                    <th>Out</th>
+                    <th>Duration</th>
+                    <th>Match</th>
+                </tr>
+            </thead>
+            <tbody id="rows">
+                {% for name, date, time_in, time_out, confidence in records %}
+                <tr>
+                    <td>
+                        <div class="person">
+                            <span class="avatar c{{ name|length % 5 }}">{{ name[0]|upper }}</span>
+                            {{ name }}
+                        </div>
+                    </td>
+                    <td class="mono">{{ date }}</td>
+                    <td class="mono">{{ time_in | short_time }}</td>
+                    <td class="mono">{{ time_out | short_time }}</td>
+                    <td class="mono">{{ duration(time_in, time_out) }}</td>
+                    <td>
+                        {% if confidence is none %}
+                        <span class="match-value na">n/a</span>
+                        {% else %}
+                        <!-- distance -> 0-100% strength, clamped so it can't overflow -->
+                        {% set strength = ((1 - confidence / 0.6) * 100) | round | int %}
+                        {% set strength = [[strength, 0] | max, 100] | min %}
+                        {% set quality = '' if confidence <= 0.4 else ('good' if confidence <= 0.5 else 'weak') %}
+                        <div class="match">
+                            <div class="meter {{ quality }}"><span style="width: {{ strength }}%"></span></div>
+                            <span class="match-value {{ quality }}">{{ '%.2f'|format(confidence) }}</span>
+                        </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="empty">
+        <div class="empty-icon">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 7h18M3 12h18M3 17h12" />
+            </svg>
+        </div>
+        <h2>No attendance recorded yet</h2>
+        <p>Once faces are recognised, every check-in is kept here.</p>
+        <a class="btn" href="{{ url_for('recognition.camera') }}">Open camera</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if records %}
+<p class="note" id="count-note">Match is the face distance &mdash; lower is closer.</p>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // hides rows that don't contain what was typed. display:none pulls a row out of
+    // the layout without deleting it, so clearing the box brings everything back
+    // with no page reload
+    function filterRows() {
+        const query = document.getElementById("search").value.toLowerCase();
+        const rows = document.getElementById("rows").getElementsByTagName("tr");
+        let visible = 0;
+
+        for (const row of rows) {
+            // textContent is all the text in the row (name + date + time + distance)
+            const matches = row.textContent.toLowerCase().includes(query);
+            row.style.display = matches ? "" : "none";   // "" = back to the browser default
+            if (matches) visible++;
+        }
+
+        const note = document.getElementById("count-note");
+        note.textContent = query
+            ? `Showing ${visible} of ${rows.length} records`
+            : "Match is the face distance — lower is closer.";
+    }
+</script>
+{% endblock %}

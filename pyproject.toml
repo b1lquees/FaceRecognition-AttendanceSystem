@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "attendance"
+version = "0.1.0"
+description = "Face recognition attendance system"
+requires-python = ">=3.12"
+
+# Dependencies are deliberately NOT listed here.
+#
+# face-recognition has to be installed with --no-deps, because its metadata requires the
+# source-only `dlib` distribution while the project actually uses the prebuilt dlib-bin
+# wheel. A [project.dependencies] list cannot express "install this one without its
+# dependencies", so requirements.txt stays the single source of truth for what to
+# install, and this file only declares the package itself.
+#
+# What `pip install -e .` buys us: `import attendance` resolves from any working
+# directory. Without it, a script in scripts/ could not import the package at all,
+# because Python puts the *script's own* directory on sys.path, not the project root.
+dependencies = []
+
+[tool.setuptools]
+# listed explicitly rather than auto-discovered, so a stray top-level directory never
+# gets silently packaged
+packages = ["attendance", "attendance.routes"]
+
+# templates and static files are not .py, so they need naming or they would be left out
+# of a real (non-editable) install
+[tool.setuptools.package-data]
+attendance = ["templates/*.html", "static/*.css"]
+
+# moved here from pytest.ini -- one less config file at the root. pythonpath is gone on
+# purpose: the tests now import the installed package, so a packaging mistake fails the
+# suite instead of being hidden by a path hack.
+[tool.pytest.ini_options]
+python_files = ["test_*.py"]
+testpaths = ["tests"]

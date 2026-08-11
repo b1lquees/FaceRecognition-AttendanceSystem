@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+
+{% block title %}Today's Attendance{% endblock %}
+{% set active_page = 'today' %}
+
+{# reloads every 30s so a live session keeps updating. delete this line if you'd
+   rather refresh by hand #}
+{% block head_extra %}<meta http-equiv="refresh" content="30">{% endblock %}
+
+{% block content %}
+<header>
+    <div class="eyebrow"><span class="dot"></span> Live session</div>
+    <h1>Today's Attendance</h1>
+    <p class="subtitle">{{ today }} &middot; refreshes automatically every 30 seconds</p>
+</header>
+
+<div class="stats">
+    <div class="stat">
+        <span class="label">Present today</span>
+        <!-- |length is jinja's version of len() -->
+        <span class="value">{{ records|length }}</span>
+    </div>
+    <div class="stat">
+        <span class="label">First check-in</span>
+        <!-- rows arrive newest-first, so the LAST one is the earliest time -->
+        <span class="value">{{ records[-1][2] | short_time if records else '--:--' }}</span>
+    </div>
+    <div class="stat">
+        <span class="label">Still here</span>
+        <!-- counted in the route rather than the template: a row is a plain tuple, and
+             jinja cannot index one by position inside a filter like selectattr -->
+        <span class="value">{{ still_here }}</span>
+    </div>
+</div>
+
+<div class="card">
+    {% if records %}
+    <div class="card-head">
+        <span class="card-title">Check-ins</span>
+        <span class="mono">{{ records|length }} record{{ '' if records|length == 1 else 's' }}</span>
+    </div>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Date</th>
+                    <th>In</th>
+                    <th>Out</th>
+                    <th>Duration</th>
+                    <th>Match</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- each sqlite row is a 5-value tuple, so jinja unpacks it into
+                     these 5 names exactly like "a, b = (1, 2)" would.
+                     time_out is None until the person checks out. -->
+                {% for name, date, time_in, time_out, confidence in records %}
+                <tr>
+                    <td>
+                        <div class="person">
+                            <!-- name|length % 5 picks one of the five avatar colours.
+                                 it depends only on the name, so a person keeps the
+                                 same colour on every page -->
+                            <span class="avatar c{{ name|length % 5 }}">{{ name[0]|upper }}</span>
+                            {{ name }}
+                        </div>
+                    </td>
+                    <td class="mono">{{ date }}</td>
+                    <td class="mono">{{ time_in | short_time }}</td>
+                    <td class="mono">{{ time_out | short_time }}</td>
+                    <td class="mono">{{ duration(time_in, time_out) }}</td>
+                    <td>
+                        {% if confidence is none %}
+                        <span class="match-value na">n/a</span>
+                        {% else %}
+                        <!-- confidence stored here is really the face DISTANCE from
+                             identify_face: 0 = identical, 0.6 = the tolerance cutoff.
+                             so flip it into a 0-100% "strength" for the bar, and clamp
+                             it with the max/min filters so it can't overflow the meter -->
+                        {% set strength = ((1 - confidence / 0.6) * 100) | round | int %}
+                        {% set strength = [[strength, 0] | max, 100] | min %}
+                        {% set quality = '' if confidence <= 0.4 else ('good' if confidence <= 0.5 else 'weak') %}
+                        <div class="match">
+                            <div class="meter {{ quality }}"><span style="width: {{ strength }}%"></span></div>
+                            <span class="match-value {{ quality }}">{{ '%.2f'|format(confidence) }}</span>
+                        </div>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <!-- the empty state. without it the page would show a bare header row over
+         nothing, which reads as broken rather than "nobody has checked in yet" -->
+    <div class="empty">
+        <div class="empty-icon">
+            <!-- inline svg: no image file to load, and it inherits the text colour -->
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+                <circle cx="12" cy="13" r="4" />
+            </svg>
+        </div>
+        <h2>No one marked present yet</h2>
+        <p>Recognised faces will appear here as soon as someone is matched.</p>
+        <a class="btn" href="{{ url_for('recognition.camera') }}">Open camera</a>
+    </div>
+    {% endif %}
+</div>
+
+{% if records %}
+<p class="note">Match is the face distance &mdash; lower is closer. Under 0.40 is strong,
+    0.40&ndash;0.50 fair, above 0.50 borderline (recognition tolerance is 0.60).</p>
+{% endif %}
+{% endblock %}

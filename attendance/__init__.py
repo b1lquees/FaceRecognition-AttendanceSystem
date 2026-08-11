@@ -1,0 +1,63 @@
+"""The attendance system, built as a Flask application factory.
+
+app.py used to create the application at import time: the Flask object, the secret key,
+and the face encodings were all set up the moment anything imported the module. That had
+three consequences worth naming, because they are the reason this file exists:
+
+  - there was exactly one configuration, decided by the environment at import time
+  - the tests had to set environment variables *before* importing app, which is fragile
+    and easy to get wrong
+  - importing the app for any reason read files from disk as a side effect
+
+create_app() defers all of that until someone actually asks for an application, so the
+test suite can build a throwaway one with its own config and its own database.
+"""
+
+from flask import Flask
+from .config import get_config
+
+
+def create_app(config=None):
+    """Build a configured Flask application.
+
+    config: a class from attendance.config. Defaults to whatever get_config() picks
+    from the environment, which is ProductionConfig when FLASK_ENV=production.
+    """
+    config = config or get_config()
+
+    # Flask(__name__) with __name__ == "attendance" means Flask looks for templates and
+    # static files inside this package, which is where they now live
+    app = Flask(__name__)
+    app.config.from_object(config)
+
+    # secret_key() is a method rather than a class attribute so that reading the
+    # environment (and, in development, writing the cached key file) happens here when
+    # an app is built, not when attendance.config is first imported
+    app.config["SECRET_KEY"] = config.secret_key()
+
+    # every POST is CSRF-checked by default. doing it as a before_request hook rather
+    # than a decorator means a newly added form is protected automatically instead of
+    # being protected only if its author remembered to opt in.
+    from .security import csrf_token, verify_csrf
+
+    app.before_request(verify_csrf)
+    app.jinja_env.globals["csrf_token"] = csrf_token  # so templates can call csrf_token()
+
+    # display helpers, so the templates can write {{ t_in | short_time }} instead of
+    # doing string slicing and arithmetic inline
+    from .formatting import duration, short_time
+
+    app.jinja_env.filters["short_time"] = short_time
+    app.jinja_env.globals["duration"] = duration
+
+    # imported inside the function rather than at module level: the route modules import
+    # from this package, so importing them at the top would be a circular import
+    from .routes import admin_bp, auth_bp, main_bp, recognition_bp, records_bp
+
+    app.register_blueprint(main_bp)
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(records_bp)
+    app.register_blueprint(recognition_bp)
+    app.register_blueprint(admin_bp)
+
+    return app

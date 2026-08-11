@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+
+{% block title %}Sign in{% endblock %}
+{% block wrapper_class %}auth-page{% endblock %}
+
+{% block content %}
+<div class="auth-card">
+    <div class="auth-brand">
+        <span class="auth-mark" aria-hidden="true"></span>
+        <span>Attendance</span>
+    </div>
+
+    <h1>Sign in</h1>
+    <p class="subtitle">Use the account an administrator approved for you.</p>
+
+    {% if error %}
+    {# role="alert" makes a screen reader announce this the moment it appears #}
+    <div class="flash flash-{{ 'warn' if pending else 'error' }}" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" novalidate>
+        {# without this hidden token the POST is rejected. see attendance/security.py #}
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+        <label class="field">
+            <span>Username</span>
+            {# autofocus puts the cursor here on load; autocomplete tells the password
+               manager which field is which so it can offer to fill them #}
+            <input type="text" name="username" autocomplete="username" required autofocus>
+        </label>
+
+        <label class="field">
+            <span>Password</span>
+            <input type="password" name="password" autocomplete="current-password" required>
+        </label>
+
+        <button class="btn btn-primary btn-block" type="submit">Sign in</button>
+    </form>
+
+    <p class="auth-alt">
+        No account yet? <a href="{{ url_for('auth.signup') }}">Request access</a>
+    </p>
+</div>
+{% endblock %}

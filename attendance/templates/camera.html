@@ -1,0 +1,336 @@
+{% extends "base.html" %}
+
+{% block title %}Camera{% endblock %}
+{% set active_page = 'camera' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow"><span class="dot"></span> Live recognition</div>
+    <h1>Camera</h1>
+    <p class="subtitle">Faces are checked against the enrolled photos every 1.5 seconds</p>
+</header>
+
+<div class="camera-grid">
+    <div class="card camera-card">
+        <div class="video-frame">
+            <!-- the feed is mirrored so moving left on screen matches moving left in
+                 real life, which is what people expect from a camera pointed at them -->
+            <video id="video" autoplay playsinline muted></video>
+
+            <!-- sits on top of the video and is the single place the current state is
+                 shown, so you never have to look away from your own face to read it -->
+            <div id="status" class="status-pill status-idle">
+                <span class="status-dot"></span>
+                <span id="status-text">Camera off</span>
+            </div>
+
+            <div id="camera-error" class="video-error" hidden>
+                <div class="empty-icon">&#9888;</div>
+                <p id="camera-error-text"></p>
+            </div>
+        </div>
+
+        <div class="camera-controls">
+            <button id="toggle" class="btn btn-primary" type="button">Start camera</button>
+
+            <!-- checking out is a deliberate choice, not something inferred from being
+                 seen again: walking past the camera after arriving should not record a
+                 five-minute day. radio inputs rather than a <select> so the current mode
+                 is readable at a glance while you are standing in front of a camera. -->
+            <div class="mode-switch" role="radiogroup" aria-label="Check in or out">
+                <label>
+                    <input type="radio" name="mode" value="in" checked>
+                    <span>Check in</span>
+                </label>
+                <label>
+                    <input type="radio" name="mode" value="out">
+                    <span>Check out</span>
+                </label>
+            </div>
+
+            <span class="note" id="counter">No frames checked yet</span>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-head">
+            <span class="card-title">This session</span>
+            <span class="pill" id="marked-count">0</span>
+        </div>
+
+        <!-- names marked while this page has been open. it is not the attendance record
+             itself, just feedback -- the real record is the Today page -->
+        <ul class="session-list" id="session-list"></ul>
+
+        <div class="empty" id="session-empty">
+            <div class="empty-icon">&#128100;</div>
+            <p>Nobody recognised yet.</p>
+        </div>
+
+        <p class="note">
+            Attendance is recorded once per person per day. Seeing someone again after
+            they are marked is normal and does not add a second row.
+        </p>
+    </div>
+</div>
+
+<!-- hidden: it exists only so a video frame can be copied onto it and read back out as
+     a jpeg. the user never needs to see it -->
+<canvas id="canvas" width="640" height="480" hidden></canvas>
+{% endblock %}
+
+{% block head_extra %}
+<script>
+    // the CSRF token is required on every POST. /recognize sends JSON rather than a
+    // form, so it travels as a header instead of a hidden field (see attendance/security.py)
+    const CSRF_TOKEN = "{{ csrf_token() }}";
+    const RECOGNIZE_URL = "{{ url_for('recognition.recognize') }}";
+    const INTERVAL_MS = 1500;
+</script>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const toggle = document.getElementById("toggle");
+    const statusPill = document.getElementById("status");
+    const statusText = document.getElementById("status-text");
+    const counter = document.getElementById("counter");
+    const sessionList = document.getElementById("session-list");
+    const sessionEmpty = document.getElementById("session-empty");
+    const markedCount = document.getElementById("marked-count");
+    const cameraError = document.getElementById("camera-error");
+    const cameraErrorText = document.getElementById("camera-error-text");
+
+    function currentMode() {
+        return document.querySelector('input[name="mode"]:checked').value;
+    }
+
+    let stream = null;      // the live MediaStream, or null when the camera is off
+    let timer = null;       // the setInterval handle, so it can be cleared on stop
+    let inFlight = false;   // guards against overlapping requests (see sendFrame)
+    let frames = 0;
+    const seen = new Set();   // "name|label" entries already listed, to avoid repeats
+    const people = new Set(); // distinct names, which is what the counter shows
+
+    function setStatus(state, text) {
+        // one class controls the colour, so the pill can never show e.g. green styling
+        // with an error message
+        statusPill.className = "status-pill status-" + state;
+        statusText.textContent = text;
+    }
+
+    async function start() {
+        try {
+            // getUserMedia asks the browser for camera access and resolves once the
+            // person clicks Allow. it rejects if they block it, if there is no camera,
+            // or if another application already holds it.
+            stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 640 }, height: { ideal: 480 } }
+            });
+        } catch (error) {
+            showCameraError(error);
+            return;
+        }
+
+        cameraError.hidden = true;
+        video.srcObject = stream;   // srcObject is for live streams; src is for files/urls
+        toggle.textContent = "Stop camera";
+        setStatus("looking", "Looking for a face…");
+        timer = setInterval(sendFrame, INTERVAL_MS);
+    }
+
+    function stop() {
+        clearInterval(timer);
+        timer = null;
+        // releasing every track is what actually turns the camera off, including the
+        // hardware indicator light. dropping the reference alone does not.
+        if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+            stream = null;
+        }
+        video.srcObject = null;
+        toggle.textContent = "Start camera";
+        setStatus("idle", "Camera off");
+    }
+
+    function showCameraError(error) {
+        // the raw DOMException name is not something to show a person, so map the ones
+        // that actually happen onto something actionable
+        const messages = {
+            NotAllowedError: "Camera access was blocked. Allow it in your browser's address bar, then try again.",
+            NotFoundError: "No camera was found on this device.",
+            NotReadableError: "The camera is already in use by another application.",
+        };
+        cameraErrorText.textContent = messages[error.name]
+            || ("Could not start the camera: " + error.message);
+        cameraError.hidden = false;
+        setStatus("error", "Camera unavailable");
+        console.error("getUserMedia failed:", error);
+    }
+
+    async function sendFrame() {
+        // recognition takes longer than the interval on a slow machine. without this
+        // guard the requests would pile up faster than the server could answer them.
+        if (inFlight || !stream) return;
+        inFlight = true;
+
+        try {
+            const context = canvas.getContext("2d");
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+            // toDataURL gives "data:image/jpeg;base64,...." -- a text form of the image,
+            // because JSON cannot carry raw binary
+            const imageData = canvas.toDataURL("image/jpeg", 0.8);
+
+            const response = await fetch(RECOGNIZE_URL, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                    "X-CSRF-Token": CSRF_TOKEN,
+                },
+                body: JSON.stringify({ image: imageData, mode: currentMode() }),
+            });
+
+            if (response.status === 401 || response.status === 403 || response.redirected) {
+                // the session expired while the page sat open
+                stop();
+                setStatus("error", "Session expired — please sign in again");
+                return;
+            }
+
+            const data = await response.json();
+
+            if (data.csrf) {
+                // the security token lives in the session, so if it stopped matching the
+                // session is almost certainly gone. polling on would just fail forever.
+                stop();
+                setStatus("error", "Session expired — please reload and sign in again");
+                return;
+            }
+
+            if (!response.ok) {
+                setStatus("error", data.error || "Recognition failed");
+                return;
+            }
+
+            frames += 1;
+            counter.textContent = frames + (frames === 1 ? " frame checked" : " frames checked");
+            render(data);
+        } catch (error) {
+            setStatus("error", "Could not reach the server");
+            console.error("Error sending frame:", error);
+        } finally {
+            // finally runs whether the request succeeded or threw, so the guard can
+            // never get stuck on and freeze recognition permanently
+            inFlight = false;
+        }
+    }
+
+    function render(data) {
+        // switch on `status` rather than matching the name against magic strings. the
+        // old code compared name === "No face detected", which breaks the day someone
+        // is called that, and left no way to express an outcome with no name to report.
+        const distance = data.distance === null ? "" : " · distance " + data.distance;
+
+        switch (data.status) {
+            case "no_face":
+                setStatus("looking", "Looking for a face…");
+                return;
+
+            case "unknown":
+                setStatus("unknown", "Face detected, not recognised");
+                return;
+
+            case "spoof":
+                // the server does not say whose photo it was, and neither do we: it
+                // never got as far as identifying it
+                setStatus("error", "Photo or screen detected — hold up a real face");
+                return;
+
+            case "liveness_error":
+                setStatus("error", "Anti-spoofing check unavailable — nothing recorded. Tell an administrator.");
+                return;
+
+            case "not_linked":
+                // personal mode, and nobody has told the system who this account is
+                setStatus("error", "Your account is not linked to an enrolled person — ask an administrator");
+                return;
+
+            case "mismatch":
+                // personal mode, and the face is not the signed-in person. the server
+                // does not say who it was, so neither can we -- that is deliberate.
+                setStatus("unknown", "That face does not match your account");
+                return;
+
+            case "checked_in":
+                setStatus("ok", "Checked in " + data.name + distance);
+                addToSession(data.name, "checked in");
+                return;
+
+            case "already_in":
+                setStatus("ok", data.name + " — already checked in today" + distance);
+                addToSession(data.name, "already in");
+                return;
+
+            case "checked_out":
+                setStatus("ok", "Checked out " + data.name + distance);
+                addToSession(data.name, "checked out");
+                return;
+
+            case "already_out":
+                setStatus("ok", data.name + " — already checked out today");
+                addToSession(data.name, "already out");
+                return;
+
+            case "not_checked_in":
+                // trying to leave without having arrived
+                setStatus("unknown", data.name + " has not checked in today");
+                return;
+
+            default:
+                setStatus("error", "Unexpected response from the server");
+                console.warn("unrecognised status:", data.status);
+        }
+    }
+
+    function addToSession(name, label) {
+        // keyed by name AND label, so someone who checks in and later checks out gets
+        // both lines rather than the second being swallowed as a duplicate
+        const key = name + "|" + label;
+        if (seen.has(key)) return;
+        seen.add(key);
+        people.add(name);
+
+        sessionEmpty.hidden = true;
+        markedCount.textContent = people.size;  // distinct people, not number of lines
+
+        const item = document.createElement("li");
+        // textContent rather than innerHTML: a name is data, and building HTML out of
+        // data is how you end up executing it
+        const who = document.createElement("span");
+        who.className = "person";
+        const avatar = document.createElement("span");
+        avatar.className = "avatar";
+        avatar.textContent = name.charAt(0).toUpperCase();
+        const nameSpan = document.createElement("span");
+        nameSpan.textContent = name;
+        who.append(avatar, nameSpan);
+
+        const tag = document.createElement("span");
+        // green only for the two labels that mean something actually changed
+        const changed = label === "checked in" || label === "checked out";
+        tag.className = changed ? "pill pill-green" : "pill";
+        tag.textContent = label;
+
+        item.append(who, tag);
+        sessionList.prepend(item);
+    }
+
+    toggle.addEventListener("click", () => (stream ? stop() : start()));
+
+    // stop the camera when the tab is closed or navigated away from, so the indicator
+    // light does not stay on
+    window.addEventListener("pagehide", stop);
+</script>
+{% endblock %}
