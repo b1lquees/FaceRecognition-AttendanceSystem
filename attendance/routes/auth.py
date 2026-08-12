@@ -2,10 +2,24 @@
 
 import sqlite3
 
-from flask import Blueprint, redirect, render_template, request, session, url_for
+from flask import (
+    Blueprint,
+    flash,
+    redirect,
+    render_template,
+    request,
+    session,
+    url_for,
+)
 
 from ..audit import audit
-from ..auth_db import register_pending_user, validate_credentials, verify_user
+from ..auth_db import (
+    change_password,
+    register_pending_user,
+    validate_credentials,
+    verify_user,
+)
+from ..decorators import login_required
 from ..ratelimit import rate_limit
 
 # a Blueprint is a group of routes that gets attached to an app later, rather than being
@@ -87,6 +101,56 @@ def signup():
         return render_template("signup_submitted.html", username=username)
 
     return render_template("signup.html")
+
+
+@auth_bp.route("/account/password", methods=["GET", "POST"])
+@login_required
+# the same limit as login, and for the same reason: this form takes the current password,
+# so without a limit it is another place to guess it -- one that a signed-in attacker on a
+# borrowed session could use to confirm they had the right person before doing anything else
+@rate_limit(limit=10, per_seconds=300, template="change_password.html")
+def change_own_password():
+    """Change your own password, proving you know the current one."""
+    if request.method == "POST":
+        username = session["username"]
+        current = request.form.get("current_password", "")
+        new = request.form.get("new_password", "")
+        confirm = request.form.get("confirm_password", "")
+
+        # the current password is verified through the normal login path, so a pending or
+        # disabled account cannot use this either
+        if verify_user(username, current).status != "ok":
+            audit("password.change_refused", account=username)
+            return render_template(
+                "change_password.html", error="Your current password is not correct."
+            ), 403
+
+        if new != confirm:
+            return render_template(
+                "change_password.html", error="The two new passwords do not match."
+            ), 400
+
+        # reuses the signup rules, so the strength requirement cannot drift between the
+        # two places a password is chosen
+        error = validate_credentials(username, new)
+        if error:
+            return render_template("change_password.html", error=error), 400
+
+        if new == current:
+            return render_template(
+                "change_password.html",
+                error="The new password is the same as the current one.",
+            ), 400
+
+        change_password(username, new)
+        audit("password.changed", account=username)
+
+        # the session survives on purpose: the person changing it is the person using it,
+        # and logging them out here would be a punishment for good behaviour
+        flash("Your password has been changed.", "success")
+        return redirect(url_for("main.home"))
+
+    return render_template("change_password.html")
 
 
 @auth_bp.route("/logout")

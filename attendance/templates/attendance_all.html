@@ -38,7 +38,7 @@
            nothing found while the match sat on page nine. #}
         <form method="GET" class="search-form">
             <input type="search" name="q" class="search" value="{{ query }}"
-                   placeholder="Search by name...">
+                   placeholder="Search name or date...">
             <button class="btn btn-small btn-primary" type="submit">Search</button>
             {% if query %}
             <a class="btn btn-small" href="{{ url_for('records.attendance_all') }}">Clear</a>
@@ -102,7 +102,7 @@
            needs the search cleared #}
         {% if query %}
         <h2>Nothing matched &ldquo;{{ query }}&rdquo;</h2>
-        <p>No attendance records have a name containing that.</p>
+        <p>No records have a name or date containing that.</p>
         <a class="btn" href="{{ url_for('records.attendance_all') }}">Clear search</a>
         {% else %}
         <h2>No attendance recorded yet</h2>

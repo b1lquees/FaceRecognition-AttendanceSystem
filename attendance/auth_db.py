@@ -105,6 +105,26 @@ def verify_user(username, password):
     return AuthResult("ok", role)
 
 
+def change_password(username, new_password):
+    """Set a new password. Returns True if an account actually changed.
+
+    Deliberately does NOT check the old one -- the caller does that, because there are two
+    callers with different rights: a signed-in person proving they know their current
+    password, and an administrator at a shell who does not need to. Putting the check here
+    would either block the admin path or make it look like the check had happened when it
+    had not.
+    """
+    conn = connect()
+    cursor = conn.execute(
+        "UPDATE users SET password_hash = ? WHERE username = ?",
+        (generate_password_hash(new_password), username),
+    )
+    conn.commit()
+    changed = cursor.rowcount == 1
+    conn.close()
+    return changed
+
+
 def count_users(approved):
     """How many accounts are in one state, for working out how many pages that is."""
     conn = connect()

@@ -929,3 +929,13 @@ tbody tr:hover {
     opacity: .4;
     pointer-events: none;
 }
+
+/* the username in the nav doubles as the link to the account page. it stays quiet -- it
+   is a signpost, not a call to action */
+a.nav-who {
+    text-decoration: none;
+}
+
+a.nav-who:hover {
+    color: var(--text);
+}

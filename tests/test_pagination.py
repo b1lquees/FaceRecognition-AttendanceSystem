@@ -195,3 +195,51 @@ def test_the_csv_export_is_not_limited_to_a_page(client, login, temp_db):
     body = client.get("/attendance/export").get_data(as_text=True)
 
     assert len(body.strip().splitlines()) == PAGE_SIZE + 10 + 1  # + header
+
+
+# --- searching by date as well as name --------------------------------------------
+
+# the capability the javascript filter had and the first sql version lost: it matched
+# anything in the row, so "2026-08" to see one month was something people could do
+def test_search_matches_a_date(temp_db):
+    make_records(3, name="Alice")
+
+    assert len(get_all_attendance(query="2026-01")) > 0
+
+
+def test_search_matches_a_full_date(temp_db):
+    make_records(5, name="Alice")
+    one_date = get_all_attendance()[0][1]
+
+    found = get_all_attendance(query=one_date)
+
+    assert len(found) == 1
+    assert found[0][1] == one_date
+
+
+def test_search_still_matches_a_name(temp_db):
+    make_records(2, name="Alice Chen")
+    make_records(3, name="Bob Adeyemi")
+
+    assert len(get_all_attendance(query="Chen")) == 2
+
+
+# a term matching a name and a term matching a date both work through the same box, which
+# is why the clause is an OR rather than two separate fields
+def test_a_name_and_a_date_search_use_the_same_box(temp_db):
+    make_records(2, name="Alice")
+    make_records(3, name="Bob")
+
+    by_name = get_all_attendance(query="Alice")
+    by_date = get_all_attendance(query="2026-")
+
+    assert len(by_name) == 2
+    assert len(by_date) == 5
+
+
+def test_the_summary_counts_a_date_search_too(temp_db):
+    make_records(4, name="Alice")
+
+    total, people, days = archive_summary(query="2026-")
+
+    assert total == 4

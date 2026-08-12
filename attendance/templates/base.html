@@ -41,7 +41,8 @@
                class="{{ 'active' if active_page == 'accounts' }}">Accounts</a>
             {% endif %}
             <span class="nav-spacer"></span>
-            <span class="nav-who">{{ session.username }}</span>
+            <a href="{{ url_for('auth.change_own_password') }}" class="nav-who"
+               title="Change password">{{ session.username }}</a>
             <a href="{{ url_for('auth.logout') }}">Log out</a>
         </nav>
         {% endif %}

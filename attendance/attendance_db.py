@@ -141,8 +141,13 @@ def get_todays_attendance():
 PAGE_SIZE = 50
 
 
-def name_filter(query):
-    """Build the LIKE pattern and clause for a name search.
+def search_filter(query):
+    """Build the WHERE clause for a search over names and dates.
+
+    Both, because the previous javascript filter matched anything in the row -- searching
+    "2026-08" to see one month was a thing people could do, and moving the search into
+    sql quietly took it away. The date column is text in "YYYY-MM-DD" form, so a partial
+    date works as a prefix without any date parsing.
 
     % and _ are wildcards in LIKE, so a search for "100%" would otherwise match every
     row. They are escaped, and ESCAPE names the escape character explicitly because
@@ -152,7 +157,11 @@ def name_filter(query):
         return "", ()
 
     escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    return "WHERE students.name LIKE ? ESCAPE '\\'", (f"%{escaped}%",)
+    pattern = f"%{escaped}%"
+    return (
+        "WHERE (students.name LIKE ? ESCAPE '\\' OR attendance.date LIKE ? ESCAPE '\\')",
+        (pattern, pattern),
+    )
 
 
 def archive_summary(query=""):
@@ -162,7 +171,7 @@ def archive_summary(query=""):
     one slice of the archive. Counting what was rendered would have quietly reported
     "50 records, 12 people" no matter how much history existed.
     """
-    where, params = name_filter(query)
+    where, params = search_filter(query)
     conn = connect()
     row = conn.execute(f"""
         SELECT COUNT(*),
@@ -184,7 +193,7 @@ def get_all_attendance(limit=None, offset=0, query=""):
     limit, because rendering every row ever recorded is fine at fifty and not at fifty
     thousand.
     """
-    where, params = name_filter(query)
+    where, params = search_filter(query)
 
     # LIMIT -1 is sqlite's "no limit", which keeps this one statement rather than two
     sql = f"""

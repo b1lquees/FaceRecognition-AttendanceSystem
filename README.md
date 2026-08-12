@@ -26,7 +26,7 @@ as CSV.
 - **CSV export** — generated in memory and streamed as a download, for opening in Excel or
   Google Sheets.
 - **Today / all-time views** — a daily register, and a full archive paged 50 at a time
-  with a name search done in SQL rather than in the browser.
+  with a name-or-date search done in SQL rather than in the browser.
 - **Enrolment from the browser** — admins add people by uploading photos; the running
   server picks them up without a restart.
 - **Anti-spoofing** — a liveness model refuses printed photos and screens before
@@ -84,6 +84,7 @@ attendance/
     liveness.py             anti-spoofing gate
     enrolment.py            adding a person from the browser
     clock.py                timezone-aware timestamps
+    pagination.py           which slice of a list to show
     formatting.py           duration / time display helpers
     ratelimit.py            login and signup throttling
     models/                 the anti-spoofing weights and their licence
@@ -110,7 +111,8 @@ Everything in `scripts/` is run directly and does one job:
 | `build_encodings.py` | Rebuild the encoding cache from `known_faces/` |
 | `recognise_live.py` | Desktop webcam viewer, same recognition without a browser |
 | `peek_db.py` | Print every attendance row |
-| `reset_attendance.py` | Delete one person's records |
+| `reset_attendance.py` | Delete one person's records, by name |
+| `reset_password.py` | Set a new password for an account (the forgotten-password path) |
 | `webcam_test.py` | Check the camera works at all |
 | `calibrate_liveness.py` | Measure the anti-spoofing model on your own camera |
 
@@ -209,6 +211,7 @@ Open <http://127.0.0.1:5000/login>, sign in, then go to `/camera`.
 | `/attendance/export` | **admin** | CSV download |
 | `/admin/users` | **admin** | Approve or reject access requests |
 | `/admin/enrol` | **admin** | Add or remove a person |
+| `/account/password` | any user | Change your own password |
 
 ### Checking in and out
 
