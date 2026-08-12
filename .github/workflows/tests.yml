@@ -4,7 +4,21 @@ on: [push, pull_request]
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    # Both, because every CI failure this project has had was a difference between them
+    # rather than a broken test: a module importable under `python -m pytest` but not
+    # under `pytest`, a path separator that is a separator on one and a filename
+    # character on the other, and a system library present on one by default. Development
+    # happens on Windows and deployment on Linux, so testing one of them tests half.
+    #
+    # fail-fast is off so a failure on one platform still reports the other. Knowing
+    # whether a break is platform-specific or universal is most of the diagnosis.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+
+    runs-on: ${{ matrix.os }}
+    name: test (${{ matrix.os }})
 
     steps:
       - name: Check out code
@@ -17,9 +31,11 @@ jobs:
           cache: pip
           cache-dependency-path: requirements*.txt
 
-      # opencv-python links against libGL and libglib, which are not installed on
-      # the bare runner -- without these, `import cv2` fails at test collection
+      # opencv-python links against libGL and libglib, which are not installed on the
+      # bare Ubuntu runner -- without these, `import cv2` fails at test collection.
+      # Windows ships the equivalent, so this step is skipped there.
       - name: Install system libraries for OpenCV
+        if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libgl1 libglib2.0-0
 
       - name: Install dependencies
@@ -34,5 +50,7 @@ jobs:
           # everything; pyproject.toml declares the package, not the dependencies.
           pip install -e . --no-deps
 
+      # `pytest`, not `python -m pytest`. The -m form puts the current directory on
+      # sys.path, which hides import mistakes that then only appear here.
       - name: Run tests
         run: pytest -v
