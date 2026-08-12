@@ -125,14 +125,20 @@ def person_directory(name):
     wrong. Two cheap checks are worth it when the cost of being wrong is somebody's
     photos, or worse, something else entirely.
     """
+    # Rejected explicitly rather than left to path resolution, because what counts as a
+    # separator is not the same everywhere: "a\b" is two path segments on Windows and a
+    # single legal filename on Linux. Leaving it to resolve() meant this guard behaved
+    # differently depending on the operating system, which for something guarding a
+    # recursive delete is not acceptable even when both behaviours happen to be safe.
+    if not name or name in (".", "..") or "/" in name or "\\" in name:
+        raise EnrolmentError(f"Refusing to touch a path outside known_faces: {name!r}")
+
     root = KNOWN_FACES_DIR.resolve()
     target = (KNOWN_FACES_DIR / name).resolve()
 
-    # must be a DIRECT child, not merely somewhere underneath. "somewhere underneath"
-    # would accept "a/b", which resolves inside known_faces but is not a person's folder
-    # and should never be deleted by this. A person's directory is always exactly one
-    # level down, so requiring that is both stricter and easier to be sure about.
-    # It also rejects ".." and "", whose parents are outside root entirely.
+    # and a DIRECT child, not merely somewhere underneath: a person's directory is always
+    # exactly one level down, so anything deeper is not a person and must never be deleted
+    # by this
     if target.parent != root:
         raise EnrolmentError(f"Refusing to touch a path outside known_faces: {name!r}")
 
