@@ -4,9 +4,14 @@ import csv
 import io
 from datetime import datetime
 
-from flask import Blueprint, Response, render_template
+from flask import Blueprint, Response, render_template, request
 
-from ..attendance_db import get_all_attendance, get_todays_attendance
+from ..attendance_db import (
+    PAGE_SIZE,
+    archive_summary,
+    get_all_attendance,
+    get_todays_attendance,
+)
 from ..decorators import admin_required, login_required
 
 records_bp = Blueprint("records", __name__)
@@ -33,8 +38,34 @@ def attendance_today():
 @records_bp.route("/attendance/all")
 @login_required
 def attendance_all():
-    records = get_all_attendance()
-    return render_template("attendance_all.html", records=records)
+    # type=int makes Flask hand back None rather than raising on "?page=banana", so a
+    # mangled url shows page one instead of a 500
+    page = request.args.get("page", default=1, type=int) or 1
+    query = (request.args.get("q") or "").strip()
+
+    total, people, days = archive_summary(query)
+    # ceiling division without importing math: how many pages of PAGE_SIZE this needs,
+    # and at least one so an empty archive still renders "page 1 of 1"
+    pages = max(1, -(-total // PAGE_SIZE))
+    # clamped rather than 404'd: ?page=999 on a shrinking archive is a stale bookmark,
+    # not an error worth blocking someone with
+    page = min(max(page, 1), pages)
+
+    records = get_all_attendance(
+        limit=PAGE_SIZE, offset=(page - 1) * PAGE_SIZE, query=query
+    )
+
+    return render_template(
+        "attendance_all.html",
+        records=records,
+        page=page,
+        pages=pages,
+        total=total,
+        people=people,
+        days=days,
+        query=query,
+        page_size=PAGE_SIZE,
+    )
 
 
 @records_bp.route("/attendance/export")

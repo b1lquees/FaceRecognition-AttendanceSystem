@@ -133,16 +133,67 @@ def get_todays_attendance():
     conn.close()
     return rows
 
-def get_all_attendance():
+# how many rows one page of the archive shows
+PAGE_SIZE = 50
+
+
+def name_filter(query):
+    """Build the LIKE pattern and clause for a name search.
+
+    % and _ are wildcards in LIKE, so a search for "100%" would otherwise match every
+    row. They are escaped, and ESCAPE names the escape character explicitly because
+    sqlite has no default one.
+    """
+    if not query:
+        return "", ()
+
+    escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return "WHERE students.name LIKE ? ESCAPE '\\'", (f"%{escaped}%",)
+
+
+def archive_summary(query=""):
+    """Totals across the whole archive: (rows, distinct people, distinct days).
+
+    Counted in sql rather than from the rows handed to the page, because the page is now
+    one slice of the archive. Counting what was rendered would have quietly reported
+    "50 records, 12 people" no matter how much history existed.
+    """
+    where, params = name_filter(query)
     conn = connect()
-    cursor = conn.cursor()
-    cursor.execute("""
+    row = conn.execute(f"""
+        SELECT COUNT(*),
+               COUNT(DISTINCT students.name),
+               COUNT(DISTINCT attendance.date)
+        FROM attendance
+        JOIN students ON attendance.student_id = students.id
+        {where}
+    """, params).fetchone()
+    conn.close()
+    return row
+
+
+def get_all_attendance(limit=None, offset=0, query=""):
+    """Attendance rows, newest first.
+
+    limit=None returns everything, which is what the CSV export wants -- exporting one
+    page of a report would be a strange thing to hand somebody. The page itself passes a
+    limit, because rendering every row ever recorded is fine at fifty and not at fifty
+    thousand.
+    """
+    where, params = name_filter(query)
+
+    # LIMIT -1 is sqlite's "no limit", which keeps this one statement rather than two
+    sql = f"""
         SELECT students.name, attendance.date, attendance.time_in,
                attendance.time_out, attendance.confidence
         FROM attendance
         JOIN students ON attendance.student_id = students.id
+        {where}
         ORDER BY attendance.date DESC, attendance.time_in DESC
-    """)
-    rows = cursor.fetchall()
+        LIMIT ? OFFSET ?
+    """
+
+    conn = connect()
+    rows = conn.execute(sql, (*params, -1 if limit is None else limit, offset)).fetchall()
     conn.close()
     return rows

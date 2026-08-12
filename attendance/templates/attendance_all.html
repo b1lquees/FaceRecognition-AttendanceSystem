@@ -12,20 +12,19 @@
 
 
 <div class="stats">
+    {# counted in sql, not from `records`. records is one page now, so counting it
+       would report "50 records" however much history there is. #}
     <div class="stat">
-        <span class="label">Total records</span>
-        <span class="value">{{ records|length }}</span>
+        <span class="label">{{ 'Matching records' if query else 'Total records' }}</span>
+        <span class="value">{{ total }}</span>
     </div>
     <div class="stat">
         <span class="label">People seen</span>
-        <!-- map(attribute=0) pulls index 0 (the name) out of every tuple, unique drops
-             repeats, list makes it countable again -> how many DIFFERENT people appear -->
-        <span class="value">{{ records|map(attribute=0)|unique|list|length }}</span>
+        <span class="value">{{ people }}</span>
     </div>
     <div class="stat">
         <span class="label">Days recorded</span>
-        <!-- same trick on index 1 (the date) -->
-        <span class="value">{{ records|map(attribute=1)|unique|list|length }}</span> <!-- records is passed thru flask-->
+        <span class="value">{{ days }}</span>
     </div>
 </div>
 
@@ -33,11 +32,18 @@
     {% if records %}
     <div class="card-head">
         <span class="card-title">History</span>
-        <!-- oninput fires on every keystroke and calls filterRows() at the bottom of
-             the page. the filtering is pure javascript over rows the server already
-             sent - it never asks flask again -->
-        <input type="text" id="search" class="search" placeholder="Search name or date..."
-            oninput="filterRows()">
+        {# a GET form, not a javascript filter. the previous version hid rows the server
+           had already sent, which stopped being honest once the page became one slice of
+           the archive: searching would have looked through fifty rows and reported
+           nothing found while the match sat on page nine. #}
+        <form method="GET" class="search-form">
+            <input type="search" name="q" class="search" value="{{ query }}"
+                   placeholder="Search by name...">
+            <button class="btn btn-small btn-primary" type="submit">Search</button>
+            {% if query %}
+            <a class="btn btn-small" href="{{ url_for('records.attendance_all') }}">Clear</a>
+            {% endif %}
+        </form>
     </div>
     <div class="table-wrap">
         <table>
@@ -91,39 +97,47 @@
                 <path d="M3 7h18M3 12h18M3 17h12" />
             </svg>
         </div>
+        {# an empty page means two different things now, and telling them apart matters:
+           "nothing has ever happened" needs the camera, "your search found nothing"
+           needs the search cleared #}
+        {% if query %}
+        <h2>Nothing matched &ldquo;{{ query }}&rdquo;</h2>
+        <p>No attendance records have a name containing that.</p>
+        <a class="btn" href="{{ url_for('records.attendance_all') }}">Clear search</a>
+        {% else %}
         <h2>No attendance recorded yet</h2>
         <p>Once faces are recognised, every check-in is kept here.</p>
         <a class="btn" href="{{ url_for('recognition.camera') }}">Open camera</a>
+        {% endif %}
     </div>
     {% endif %}
 </div>
 
-{% if records %}
-<p class="note" id="count-note">Match is the face distance &mdash; lower is closer.</p>
+{% if pages > 1 %}
+<nav class="pager" aria-label="Pages">
+    {# the search term is carried through every link, or paging would silently drop it
+       and show unfiltered results under a filtered heading #}
+    {% if page > 1 %}
+    <a class="btn btn-small" href="{{ url_for('records.attendance_all', page=page - 1, q=query or None) }}">Previous</a>
+    {% else %}
+    <span class="btn btn-small is-disabled" aria-disabled="true">Previous</span>
+    {% endif %}
+
+    <span class="pager-position">
+        Page {{ page }} of {{ pages }}
+        <span class="mono">&middot; {{ total }} record{{ '' if total == 1 else 's' }}</span>
+    </span>
+
+    {% if page < pages %}
+    <a class="btn btn-small" href="{{ url_for('records.attendance_all', page=page + 1, q=query or None) }}">Next</a>
+    {% else %}
+    <span class="btn btn-small is-disabled" aria-disabled="true">Next</span>
+    {% endif %}
+</nav>
 {% endif %}
-{% endblock %}
 
-{% block scripts %}
-<script>
-    // hides rows that don't contain what was typed. display:none pulls a row out of
-    // the layout without deleting it, so clearing the box brings everything back
-    // with no page reload
-    function filterRows() {
-        const query = document.getElementById("search").value.toLowerCase();
-        const rows = document.getElementById("rows").getElementsByTagName("tr");
-        let visible = 0;
-
-        for (const row of rows) {
-            // textContent is all the text in the row (name + date + time + distance)
-            const matches = row.textContent.toLowerCase().includes(query);
-            row.style.display = matches ? "" : "none";   // "" = back to the browser default
-            if (matches) visible++;
-        }
-
-        const note = document.getElementById("count-note");
-        note.textContent = query
-            ? `Showing ${visible} of ${rows.length} records`
-            : "Match is the face distance — lower is closer.";
-    }
-</script>
+{% if records %}
+<p class="note">Match is the face distance &mdash; lower is closer. Showing up to
+    {{ page_size }} records per page; the CSV export contains all of them.</p>
+{% endif %}
 {% endblock %}

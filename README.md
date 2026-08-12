@@ -23,7 +23,8 @@ as CSV.
   export it.
 - **CSV export** — generated in memory and streamed as a download, for opening in Excel or
   Google Sheets.
-- **Today / all-time views** — a filtered daily register and a full searchable archive.
+- **Today / all-time views** — a daily register, and a full archive paged 50 at a time
+  with a name search done in SQL rather than in the browser.
 - **Enrolment from the browser** — admins add people by uploading photos; the running
   server picks them up without a restart.
 - **Anti-spoofing** — a liveness model refuses printed photos and screens before
@@ -201,7 +202,7 @@ Open <http://127.0.0.1:5000/login>, sign in, then go to `/camera`.
 | `/camera` | any user | Live recognition page |
 | `/recognize` | any user | `POST` endpoint that identifies one frame |
 | `/attendance/today` | any user | Today's register |
-| `/attendance/all` | any user | Full archive |
+| `/attendance/all` | any user | Full archive, paged and searchable by name |
 | `/attendance/export` | **admin** | CSV download |
 | `/admin/users` | **admin** | Approve or reject access requests |
 | `/admin/enrol` | **admin** | Add or remove a person |

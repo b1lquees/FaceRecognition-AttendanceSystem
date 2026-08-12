@@ -895,3 +895,37 @@ tbody tr:hover {
     background: var(--line-soft);
     color: var(--text);
 }
+
+/* ---- search + pagination --------------------------------------------------- */
+.search-form {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.pager {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-top: 16px;
+    flex-wrap: wrap;
+    /* the nav rules further up style the main tab bar; this is a different thing that
+       happens to also be a <nav>, so it opts out of that pill-strip treatment */
+    background: none;
+    border: 0;
+    box-shadow: none;
+    padding: 0;
+}
+
+.pager-position {
+    font-size: 13px;
+    color: var(--muted);
+}
+
+/* at the first or last page the control stays in place rather than disappearing, so the
+   row does not reflow as you page through */
+.is-disabled {
+    opacity: .4;
+    pointer-events: none;
+}
