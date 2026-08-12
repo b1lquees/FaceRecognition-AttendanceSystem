@@ -32,7 +32,7 @@ def test_checking_out_without_checking_in(client, login, csrf, frame, recognises
     data = post_frame(client, csrf, frame, "out").get_json()
 
     assert data["status"] == "not_checked_in"
-    assert data["marked"] is False
+    assert data["results"][0]["marked"] is False
 
 
 def test_checking_out_twice(client, login, csrf, frame, recognises):

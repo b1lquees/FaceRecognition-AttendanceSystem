@@ -3,6 +3,25 @@
 {% block title %}Accounts{% endblock %}
 {% set active_page = 'accounts' %}
 
+
+{% macro pager(page, param) %}
+{% if page.needed %}
+<nav class="pager" aria-label="Pages">
+    {% if page.has_previous %}
+    <a class="btn btn-small" href="{{ url_for('admin.users', **{param: page.previous}) }}">Previous</a>
+    {% else %}
+    <span class="btn btn-small is-disabled" aria-disabled="true">Previous</span>
+    {% endif %}
+    <span class="pager-position">Page {{ page.number }} of {{ page.count }}</span>
+    {% if page.has_next %}
+    <a class="btn btn-small" href="{{ url_for('admin.users', **{param: page.next}) }}">Next</a>
+    {% else %}
+    <span class="btn btn-small is-disabled" aria-disabled="true">Next</span>
+    {% endif %}
+</nav>
+{% endif %}
+{% endmacro %}
+
 {% block content %}
 <header>
     <div class="eyebrow">Administration</div>
@@ -26,7 +45,7 @@
 <div class="card">
     <div class="card-head">
         <span class="card-title">Waiting for approval</span>
-        <span class="pill pill-amber">{{ pending|length }}</span>
+        <span class="pill pill-amber">{{ pending_page.total }}</span>
     </div>
 
     {% if pending %}
@@ -75,11 +94,12 @@
     </div>
     {% endif %}
 </div>
+{{ pager(pending_page, 'pending') }}
 
 <div class="card">
     <div class="card-head">
         <span class="card-title">Active accounts</span>
-        <span class="pill">{{ approved|length }}</span>
+        <span class="pill">{{ approved_page.total }}</span>
     </div>
 
     <div class="table-wrap">
@@ -126,6 +146,8 @@
             </tbody>
         </table>
     </div>
+
+    {{ pager(approved_page, 'approved') }}
 
     <p class="note">
         Roles are not editable here. Promoting someone to admin is deliberately a

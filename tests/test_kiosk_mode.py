@@ -38,7 +38,7 @@ def test_kiosk_mode_marks_whoever_is_recognised(client, login, csrf, frame, reco
     data = post_frame(client, csrf, frame).get_json()
 
     assert data["status"] == "checked_in"
-    assert data["name"] == "Alice"
+    assert data["results"][0]["name"] == "Alice"
     assert len(get_todays_attendance()) == 1
 
 
@@ -64,7 +64,7 @@ def test_personal_mode_marks_the_signed_in_person(
     data = post_frame(client, csrf, frame).get_json()
 
     assert data["status"] == "checked_in"
-    assert data["name"] == "Alice"
+    assert data["results"][0]["name"] == "Alice"
 
 
 # this is the test that makes "only the registered person can check in" true rather than
@@ -80,7 +80,8 @@ def test_personal_mode_refuses_somebody_elses_face(
     data = post_frame(client, csrf, frame).get_json()
 
     assert data["status"] == "mismatch"
-    assert data["marked"] is False
+    assert data["results"][0]["marked"] is False
+    assert data["results"][0]["name"] is None  # withheld, deliberately
     assert get_todays_attendance() == []  # and nothing was recorded for anyone
 
 
@@ -141,7 +142,7 @@ def test_an_unrecognised_face_is_reported_the_same_in_both_modes(
     data = post_frame(client, csrf, frame).get_json()
 
     assert data["status"] == "unknown"
-    assert data["marked"] is False
+    assert data["results"][0]["marked"] is False
 
 
 def test_no_face_in_frame(client, login, csrf, frame, monkeypatch, app):

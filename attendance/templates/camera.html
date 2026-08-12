@@ -228,10 +228,25 @@
     }
 
     function render(data) {
-        // switch on `status` rather than matching the name against magic strings. the
-        // old code compared name === "No face detected", which breaks the day someone
-        // is called that, and left no way to express an outcome with no name to report.
-        const distance = data.distance === null ? "" : " · distance " + data.distance;
+        // `status` is the summary for the pill; `results` is one entry per face, because
+        // a frame can hold more than one person and each gets their own outcome.
+        // Everything except the pill iterates the array.
+        for (const person of data.results || []) {
+            if (person.name && (person.status === "checked_in" || person.status === "checked_out")) {
+                addToSession(person.name, person.status === "checked_in" ? "checked in" : "checked out");
+            } else if (person.name && person.status === "already_in") {
+                addToSession(person.name, "already in");
+            } else if (person.name && person.status === "already_out") {
+                addToSession(person.name, "already out");
+            }
+        }
+
+        const faces = (data.results || []).length;
+        // named so the pill can say "2 faces" rather than pretending there was only one
+        const several = faces > 1 ? ` (${faces} faces)` : "";
+        const named = (data.results || []).find(p => p.name)?.name || "";
+        const distance = (data.results || []).find(p => p.distance !== null)?.distance;
+        const gap = distance === undefined ? "" : " · distance " + distance;
 
         switch (data.status) {
             case "no_face":
@@ -239,7 +254,7 @@
                 return;
 
             case "unknown":
-                setStatus("unknown", "Face detected, not recognised");
+                setStatus("unknown", "Face detected, not recognised" + several);
                 return;
 
             case "spoof":
@@ -253,39 +268,31 @@
                 return;
 
             case "not_linked":
-                // personal mode, and nobody has told the system who this account is
                 setStatus("error", "Your account is not linked to an enrolled person — ask an administrator");
                 return;
 
             case "mismatch":
-                // personal mode, and the face is not the signed-in person. the server
-                // does not say who it was, so neither can we -- that is deliberate.
                 setStatus("unknown", "That face does not match your account");
                 return;
 
             case "checked_in":
-                setStatus("ok", "Checked in " + data.name + distance);
-                addToSession(data.name, "checked in");
+                setStatus("ok", "Checked in " + named + gap + several);
                 return;
 
             case "already_in":
-                setStatus("ok", data.name + " — already checked in today" + distance);
-                addToSession(data.name, "already in");
+                setStatus("ok", named + " — already checked in today" + gap + several);
                 return;
 
             case "checked_out":
-                setStatus("ok", "Checked out " + data.name + distance);
-                addToSession(data.name, "checked out");
+                setStatus("ok", "Checked out " + named + gap + several);
                 return;
 
             case "already_out":
-                setStatus("ok", data.name + " — already checked out today");
-                addToSession(data.name, "already out");
+                setStatus("ok", named + " — already checked out today" + several);
                 return;
 
             case "not_checked_in":
-                // trying to leave without having arrived
-                setStatus("unknown", data.name + " has not checked in today");
+                setStatus("unknown", named + " has not checked in today");
                 return;
 
             default:

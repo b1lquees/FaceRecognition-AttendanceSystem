@@ -186,7 +186,7 @@ def test_a_spoof_is_refused_and_records_nothing(
     data = post_frame(client, csrf, frame).get_json()
 
     assert data["status"] == "spoof"
-    assert data["marked"] is False
+    assert data["results"][0]["marked"] is False
     assert get_todays_attendance() == []
 
 

@@ -6,6 +6,7 @@ from ..attendance_db import list_students
 from ..audit import audit
 from ..auth_db import (
     approve_user,
+    count_users,
     link_user_to_student,
     list_approved_users,
     list_pending_users,
@@ -13,6 +14,7 @@ from ..auth_db import (
 )
 from ..decorators import admin_required
 from ..enrolment import MAX_PHOTOS, EnrolmentError, enrol, remove_person
+from ..pagination import paginate
 from ..recognition import get_known_encodings
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -21,10 +23,21 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 @admin_bp.route("/users")
 @admin_required
 def users():
+    # two lists on one page, so two independent page numbers. Sharing one would move
+    # both at once, which is never what an admin working through a queue wants.
+    pending_page = paginate(
+        request.args.get("pending", type=int), count_users(approved=False)
+    )
+    approved_page = paginate(
+        request.args.get("approved", type=int), count_users(approved=True)
+    )
+
     return render_template(
         "admin_users.html",
-        pending=list_pending_users(),
-        approved=list_approved_users(),
+        pending=list_pending_users(pending_page.size, pending_page.offset),
+        approved=list_approved_users(approved_page.size, approved_page.offset),
+        pending_page=pending_page,
+        approved_page=approved_page,
         students=list_students(),
         kiosk_mode=current_app.config["KIOSK_MODE"],
     )

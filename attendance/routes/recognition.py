@@ -17,6 +17,41 @@ from ..recognition import DETECTION_SCALE, get_known_encodings, identify_face
 
 recognition_bp = Blueprint("recognition", __name__)
 
+# Per frame, not per person: each face costs an encoding and a liveness inference, and a
+# frame holding a crowd would otherwise turn one request into dozens of them every 1.5s.
+# Five is well past any realistic doorway and nowhere near a denial of service.
+MAX_FACES_PER_FRAME = 5
+
+# Which outcome the status pill should show when a frame held several faces. Something
+# that actually happened outranks something that did not; a refused spoof outranks a
+# merely unrecognised face, because it is the one worth noticing.
+STATUS_PRIORITY = [
+    "checked_in", "checked_out",
+    "already_in", "already_out",
+    "spoof", "liveness_error",
+    "not_checked_in", "mismatch", "not_linked",
+    "unknown",
+]
+
+
+def outcome(status, name=None, distance=None, marked=False):
+    """One face's result, as it appears in the `results` array."""
+    return {
+        "status": status,
+        "name": name,
+        "distance": distance if distance is None else round(float(distance), 2),
+        "marked": marked,
+    }
+
+
+def summarise(outcomes):
+    """The single status for the pill, when several faces were seen at once."""
+    seen = {item["status"] for item in outcomes}
+    for status in STATUS_PRIORITY:
+        if status in seen:
+            return status
+    return "unknown"
+
 
 def result(status, name=None, distance=None, marked=False):
     """One shape for every answer.
@@ -111,16 +146,43 @@ def recognize():
     # thing standing between that and a check-in would be the order of two if statements.
     # It takes rgb_frame: this model was trained on RGB, unlike the rest of the OpenCV
     # path here, and passing BGR swaps two channels and gives quietly wrong answers.
+    # A frame can hold more than one face, and until now only the first was looked at --
+    # so at a shared camera the second person in shot was silently ignored, while the
+    # desktop viewer handled everyone. The two paths now agree.
+    #
+    # Capped because the work is per face: encoding and a liveness check each cost real
+    # time, and a frame containing a crowd photo would otherwise turn one request into
+    # fifty inferences, every 1.5 seconds.
+    outcomes = []
+    for location in face_locations[:MAX_FACES_PER_FRAME]:
+        outcome = handle_one_face(rgb_frame, location, data.get("mode"))
+        if outcome is not None:
+            outcomes.append(outcome)
+
+    if not outcomes:
+        return result("no_face")
+
+    return jsonify({"status": summarise(outcomes), "results": outcomes})
+
+
+def handle_one_face(rgb_frame, location, mode):
+    """Everything that happens to a single detected face. Returns a result dict."""
+    # Liveness runs BEFORE recognition, deliberately. A photograph of an enrolled person
+    # produces the same encoding the real person does, so identifying first and checking
+    # afterwards would mean the system knew whose photo it was looking at -- and the only
+    # thing standing between that and a check-in would be the order of two if statements.
+    # It takes rgb_frame: this model was trained on RGB, unlike the rest of the OpenCV
+    # path here, and passing BGR swaps two channels and gives quietly wrong answers.
     if current_app.config["LIVENESS_ENABLED"]:
         try:
             accepted, label, live_score = is_live(
-                rgb_frame, face_locations[0], current_app.config["LIVENESS_THRESHOLD"]
+                rgb_frame, location, current_app.config["LIVENESS_THRESHOLD"]
             )
         except LivenessUnavailable:
             # fail closed. an anti-spoofing check that waves everyone through when it
             # breaks is worse than not having one, because it looks like it is working.
             current_app.logger.exception("liveness model unavailable")
-            return result("liveness_error")
+            return outcome("liveness_error")
 
         if not accepted:
             # audited, not just logged: a run of these is somebody standing at the camera
@@ -128,45 +190,38 @@ def recognize():
             # find afterwards. the score is recorded so a pattern of near-misses can be
             # told apart from a blatant attempt when tuning the threshold.
             audit("liveness.refused", label=label, score=f"{live_score:.2f}")
-            return result("spoof")
+            return outcome("spoof")
 
-    face_encodings = face_recognition.face_encodings(rgb_frame, face_locations)
+    encodings = face_recognition.face_encodings(rgb_frame, [location])
+    if not encodings:
+        return None  # detected but not encodable; nothing to say about it
 
-    if len(face_encodings) == 0:
-        return result("no_face")
-
-    # just handle the first detected face for now
-    name, distance = identify_face(face_encodings[0], get_known_encodings())
+    name, distance = identify_face(encodings[0], get_known_encodings())
 
     if name == "Unknown":
-        return result("unknown", distance=distance)
+        return outcome("unknown", distance=distance)
 
     # In personal mode the face in view has to belong to the account that is signed in.
     # Without this check, being logged in as anyone lets you mark anyone else present,
-    # because mark_attendance() records whoever was recognised and never consults the
-    # session at all. Kiosk mode wants exactly that behaviour, which is why this is a
-    # setting rather than a fix.
+    # because check_in() records whoever was recognised and never consults the session
+    # at all. Kiosk mode wants exactly that behaviour, which is why this is a setting
+    # rather than a fix.
     if not current_app.config["KIOSK_MODE"]:
         linked_student_id = get_linked_student_id(session["username"])
         if linked_student_id is None:
-            return result("not_linked")
+            return outcome("not_linked")
         if linked_student_id != get_student_id(name):
             # the recognised name is deliberately withheld. reporting it would tell the
             # signed-in user who was standing in front of the camera, which leaks other
             # people's presence to anyone able to point a webcam at them.
-            return result("mismatch")
+            return outcome("mismatch")
 
     # "in" unless the page explicitly asked to check out, so a malformed or missing mode
     # falls back to the safer of the two: recording an arrival that can be corrected is
     # better than recording a departure that was never intended
-    if data.get("mode") == "out":
-        status = check_out(name)
-    else:
-        status = check_in(name, distance)
+    status = check_out(name) if mode == "out" else check_in(name, distance)
 
-    return result(
-        status,
-        name=name,
-        distance=distance,
+    return outcome(
+        status, name=name, distance=distance,
         marked=status in ("checked_in", "checked_out"),
     )

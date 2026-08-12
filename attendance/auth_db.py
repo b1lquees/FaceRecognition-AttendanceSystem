@@ -105,17 +105,33 @@ def verify_user(username, password):
     return AuthResult("ok", role)
 
 
-def list_pending_users():
-    """Every account waiting for approval, oldest id first."""
+def count_users(approved):
+    """How many accounts are in one state, for working out how many pages that is."""
+    conn = connect()
+    total = conn.execute(
+        "SELECT COUNT(*) FROM users WHERE is_approved = ?", (1 if approved else 0,)
+    ).fetchone()[0]
+    conn.close()
+    return total
+
+
+def list_pending_users(limit=None, offset=0):
+    """Accounts waiting for approval, oldest first so the longest wait is dealt with first.
+
+    limit=None returns all of them, which is what the tests and any scripting want. The
+    page passes a limit: signup is public, so this list is the one an attacker can make
+    long, and rendering all of it is how a flooded queue becomes an unusable admin page.
+    """
     conn = connect()
     rows = conn.execute(
-        "SELECT id, username FROM users WHERE is_approved = 0 ORDER BY id"
+        "SELECT id, username FROM users WHERE is_approved = 0 ORDER BY id LIMIT ? OFFSET ?",
+        (-1 if limit is None else limit, offset),
     ).fetchall()
     conn.close()
     return rows
 
 
-def list_approved_users():
+def list_approved_users(limit=None, offset=0):
     """Every account that can currently log in, with the person it is linked to.
 
     LEFT JOIN rather than JOIN: an account with no linked person must still appear in
@@ -129,7 +145,8 @@ def list_approved_users():
         LEFT JOIN students ON users.student_id = students.id
         WHERE users.is_approved = 1
         ORDER BY users.username
-    """).fetchall()
+        LIMIT ? OFFSET ?
+    """, (-1 if limit is None else limit, offset)).fetchall()
     conn.close()
     return rows
 
