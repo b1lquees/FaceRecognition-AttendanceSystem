@@ -8,7 +8,7 @@ server disagreed, and the only feedback was a white page with three words on it.
 
 from flask import render_template, request
 
-from .enrolment import MAX_PHOTOS, MAX_PHOTO_BYTES
+from .enrolment import MAX_PHOTO_BYTES, MAX_PHOTOS
 
 
 def wants_json():
@@ -29,7 +29,10 @@ def register_error_handlers(app):
             "error.html",
             code=404,
             title="Page not found",
-            message="That address does not exist. It may have been mistyped, or the link that brought you here may be out of date.",
+            message=(
+                "That address does not exist. It may have been mistyped, or the link "
+                "that brought you here may be out of date."
+            ),
         ), 404
 
     @app.errorhandler(413)
@@ -61,5 +64,8 @@ def register_error_handlers(app):
             "error.html",
             code=500,
             title="Something went wrong",
-            message="The server hit an unexpected problem. It has been logged. Try again, and tell an administrator if it keeps happening.",
+            message=(
+                "The server hit an unexpected problem. It has been logged. Try again, "
+                "and tell an administrator if it keeps happening."
+            ),
         ), 500

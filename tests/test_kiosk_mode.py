@@ -8,7 +8,6 @@ from attendance.auth_db import (
     list_approved_users,
 )
 
-
 # the frame and recognises fixtures live in conftest.py, shared with test_checkout.py
 
 

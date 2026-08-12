@@ -52,7 +52,8 @@ def check_in(name, confidence):
     conn = connect()
     cursor = conn.cursor()
 
-    today = datetime.now().strftime("%Y-%m-%d") # string format time convert datatime object into a formatted string
+    # strftime converts the datetime object into a formatted string
+    today = datetime.now().strftime("%Y-%m-%d")
     now_time = datetime.now().strftime("%H:%M:%S")
 
     # this used to be a SELECT to check for an existing row, then an INSERT if there
@@ -66,7 +67,8 @@ def check_in(name, confidence):
     # the ? placeholders are still doing the same job as before -- they protect against
     # sql injection and handle the quoting/formatting of the values automatically.
     cursor.execute(
-        "INSERT OR IGNORE INTO attendance (student_id, date, time_in, confidence) VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO attendance (student_id, date, time_in, confidence) "
+        "VALUES (?, ?, ?, ?)",
         (student_id, today, now_time, confidence)
     )
     conn.commit()
@@ -129,7 +131,8 @@ def get_todays_attendance():
         WHERE attendance.date = ?
         ORDER BY attendance.time_in DESC
     """, (today,))
-    rows = cursor.fetchall() # fetch all bec we want every fetching row since we re displaying the full attendance list
+    # fetchall because we want every row -- this is the full attendance list
+    rows = cursor.fetchall()
     conn.close()
     return rows
 

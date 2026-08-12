@@ -3,6 +3,23 @@ name: Tests
 on: [push, pull_request]
 
 jobs:
+  # Its own job rather than a step in the test matrix: linting is platform-independent,
+  # so running it twice would report the same thing twice, and it finishes in seconds
+  # while the test job spends a minute installing opencv and dlib. Failing fast on a
+  # stray import beats waiting for that.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        # just ruff, not the whole dependency set -- it needs none of it to read the code
+        run: pip install ruff==0.16.2
+      - name: Lint
+        run: ruff check --output-format=github .
+
   test:
     # Both, because every CI failure this project has had was a difference between them
     # rather than a broken test: a module importable under `python -m pytest` but not

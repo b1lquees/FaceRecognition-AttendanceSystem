@@ -35,7 +35,8 @@ def create_schema(db_path=None):
     db_path = db_path or get_db_path()  # default to the configured path, but allow an explicit one
 
     conn = sqlite3.connect(db_path)  # opening the database
-    cursor = conn.cursor()  # after the connection opens the database the cursor sends the command to it
+    # after the connection opens the database, the cursor sends commands to it
+    cursor = conn.cursor()
 
     # date_registered is when they were enrolled
     cursor.execute("""

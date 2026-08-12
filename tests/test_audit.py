@@ -3,7 +3,7 @@ import logging
 import pytest
 
 from attendance.audit import audit, configure_logging
-from attendance.auth_db import create_user, register_pending_user, list_pending_users
+from attendance.auth_db import create_user, list_pending_users, register_pending_user
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def test_approving_an_account_is_recorded(client, login, csrf, logs):
 
     client.post(f"/admin/users/{user_id}/approve", data={"_csrf_token": csrf})
 
-    line = next(l for l in audit_lines(logs) if "account.approved" in l)
+    line = next(line for line in audit_lines(logs) if "account.approved" in line)
     assert "by=admin1" in line
     assert f"target_id={user_id}" in line
 
@@ -40,7 +40,7 @@ def test_rejecting_an_account_is_recorded(client, login, csrf, logs):
 
     client.post(f"/admin/users/{user_id}/reject", data={"_csrf_token": csrf})
 
-    assert any("account.rejected" in l for l in audit_lines(logs))
+    assert any("account.rejected" in line for line in audit_lines(logs))
 
 
 def test_a_successful_login_is_recorded(client, csrf, logs):
@@ -51,7 +51,7 @@ def test_a_successful_login_is_recorded(client, csrf, logs):
         data={"username": "alice", "password": "a-good-password", "_csrf_token": csrf},
     )
 
-    line = next(l for l in audit_lines(logs) if "login.success" in l)
+    line = next(line for line in audit_lines(logs) if "login.success" in line)
     assert "account=alice" in line
     assert "role=admin" in line
 
@@ -65,7 +65,7 @@ def test_a_failed_login_is_recorded_with_the_attempted_username(client, csrf, lo
         data={"username": "alice", "password": "wrong", "_csrf_token": csrf},
     )
 
-    line = next(l for l in audit_lines(logs) if "login.failed" in l)
+    line = next(line for line in audit_lines(logs) if "login.failed" in line)
     assert "account=alice" in line
 
 

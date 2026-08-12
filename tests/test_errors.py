@@ -1,10 +1,7 @@
 import io
 
-import pytest
-
 from attendance.config import Config
 from attendance.enrolment import MAX_PHOTO_BYTES, MAX_PHOTOS, MAX_REQUEST_BYTES
-
 
 # --- the limits have to agree with each other -----------------------------------
 

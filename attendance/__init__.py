@@ -14,6 +14,7 @@ test suite can build a throwaway one with its own config and its own database.
 """
 
 from flask import Flask, request
+
 from .config import get_config
 
 
@@ -45,14 +46,13 @@ def create_app(config=None):
     # every POST is CSRF-checked by default. doing it as a before_request hook rather
     # than a decorator means a newly added form is protected automatically instead of
     # being protected only if its author remembered to opt in.
-    from .security import csrf_token, verify_csrf
-
     # Raise the upload limit for enrolment BEFORE the CSRF hook runs, and it has to be
     # in that order. verify_csrf reads request.form, and reading the form is what pulls
     # the body in and triggers the size check -- so a limit set inside the view arrives
     # too late and a large upload 413s before any view executes. before_request handlers
     # run in registration order, which is what makes this work.
     from .enrolment import MAX_REQUEST_BYTES
+    from .security import csrf_token, verify_csrf
 
     @app.before_request
     def allow_larger_enrolment_uploads():

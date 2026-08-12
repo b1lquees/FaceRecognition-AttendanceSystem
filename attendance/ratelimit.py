@@ -87,7 +87,11 @@ def rate_limit(limit, per_seconds, template=None):
                 retry_after = is_rate_limited(bucket, limit, per_seconds)
                 if retry_after is not None:
                     minutes = max(1, round(retry_after / 60))
-                    message = f"Too many attempts. Please try again in about {minutes} minute{'' if minutes == 1 else 's'}."
+                    plural = "" if minutes == 1 else "s"
+                    message = (
+                        f"Too many attempts. Please try again in about "
+                        f"{minutes} minute{plural}."
+                    )
                     if template:
                         response = make_response(render_template(template, error=message), 429)
                     else:

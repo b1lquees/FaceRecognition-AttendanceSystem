@@ -122,7 +122,8 @@ def test_register_student_is_idempotent(temp_db):
     assert first_id == second_id
 
 
-def test_identify_face():  # this is to make sure your function returns unknown when there is no reasonable match
+# makes sure identify_face returns "Unknown" when there is no reasonable match
+def test_identify_face():
     fake_encoding = np.random.rand(128)
     known_encodings = {
         "Bilquees": [np.random.rand(128)]

@@ -14,7 +14,6 @@ from attendance.auth_db import (
 )
 from attendance.db import connect
 
-
 # --- password handling ----------------------------------------------------------
 
 def test_verify_user_returns_role_for_correct_password(temp_db):

@@ -2,8 +2,9 @@
 # saving those in a dictionary to compare our picture against
 # so when later when a webcam detects a face it will create a 128 no encoding and compare it w the stored encodings
 
-import face_recognition # will detect faces and generate 128dim face encodings
-import os # allows python to work w folders and files on computers
+import os  # allows python to work w folders and files on computers
+
+import face_recognition  # will detect faces and generate 128dim face encodings
 
 from attendance.recognition import ENCODINGS_FILE, PROJECT_ROOT, save_known_encodings
 

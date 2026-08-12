@@ -6,7 +6,6 @@ from attendance.auth_db import create_user, verify_user
 from attendance.config import Config, ProductionConfig, TestingConfig
 from attendance.db import DEFAULT_DB
 
-
 # --- rate limiting --------------------------------------------------------------
 
 def post_login(client, csrf, password="wrong-password"):

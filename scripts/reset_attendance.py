@@ -2,7 +2,7 @@ from attendance.db import connect  # uses ATTENDANCE_DB if set, else attendance.
 
 conn = connect()
 conn.execute("""
-    DELETE FROM attendance 
+    DELETE FROM attendance
     WHERE student_id = (SELECT id FROM students WHERE name = ?)
 """, ("Bilquees",))
 conn.commit()

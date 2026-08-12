@@ -105,7 +105,9 @@ def save_known_encodings(known_encodings, path=None):
     # cache -- which matters now that a web request can trigger this while the camera is
     # reading the same file.
     temp_path = path.with_suffix(path.suffix + ".tmp")
-    np.savez_compressed(temp_path, **{NAMES_KEY: np.array(names, dtype=str), ENCODINGS_KEY: stacked})
+    np.savez_compressed(
+        temp_path, **{NAMES_KEY: np.array(names, dtype=str), ENCODINGS_KEY: stacked}
+    )
     # savez_compressed appends .npz if the name lacks it, so ask for the file it wrote
     written = temp_path if temp_path.exists() else temp_path.with_suffix(temp_path.suffix + ".npz")
     os.replace(written, path)

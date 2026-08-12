@@ -4,8 +4,6 @@ from flask import Blueprint, current_app, flash, redirect, render_template, requ
 
 from ..attendance_db import list_students
 from ..audit import audit
-from ..enrolment import MAX_PHOTOS, EnrolmentError, enrol, remove_person
-from ..recognition import get_known_encodings
 from ..auth_db import (
     approve_user,
     link_user_to_student,
@@ -14,6 +12,8 @@ from ..auth_db import (
     reject_user,
 )
 from ..decorators import admin_required
+from ..enrolment import MAX_PHOTOS, EnrolmentError, enrol, remove_person
+from ..recognition import get_known_encodings
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 

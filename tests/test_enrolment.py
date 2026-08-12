@@ -6,8 +6,7 @@ import pytest
 
 from attendance import enrolment, recognition
 from attendance.attendance_db import list_students
-from attendance.enrolment import EnrolmentError, enrol, encode_photo, validate_name
-
+from attendance.enrolment import EnrolmentError, encode_photo, enrol, validate_name
 
 # the storage and face_photo fixtures live in conftest.py, shared with test_errors.py
 

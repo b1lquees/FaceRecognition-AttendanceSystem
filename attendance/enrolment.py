@@ -19,11 +19,11 @@ import numpy as np
 
 from .attendance_db import register_student
 from .recognition import (
+    PROJECT_ROOT,
     load_known_encodings,
     reload_known_encodings,
     save_known_encodings,
 )
-from .recognition import PROJECT_ROOT
 
 KNOWN_FACES_DIR = PROJECT_ROOT / "known_faces"
 

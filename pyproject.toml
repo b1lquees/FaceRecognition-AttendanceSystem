@@ -37,3 +37,21 @@ attendance = ["templates/*.html", "static/*.css"]
 [tool.pytest.ini_options]
 python_files = ["test_*.py"]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# E/W  pycodestyle  - layout mistakes
+# F    pyflakes     - actual problems: unused imports, undefined names, shadowing
+# I    isort        - import order, so it stops being a matter of opinion in review
+select = ["E", "F", "W", "I"]
+
+[tool.ruff.lint.per-file-ignores]
+# These two predate the rest of the project and are written in a deliberately heavy
+# teaching-comment style, with explanations running well past the line limit. Reflowing
+# them would rewrite the author's own notes to satisfy a linter, which is the wrong way
+# round. Everything else is held to the limit.
+"scripts/webcam_test.py" = ["E501", "E702"]
+"scripts/build_encodings.py" = ["E501"]
