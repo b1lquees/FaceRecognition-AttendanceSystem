@@ -2,7 +2,6 @@
 
 import csv
 import io
-from datetime import datetime
 
 from flask import Blueprint, Response, render_template, request
 
@@ -12,6 +11,7 @@ from ..attendance_db import (
     get_all_attendance,
     get_todays_attendance,
 )
+from ..clock import local_date
 from ..decorators import admin_required, login_required
 
 records_bp = Blueprint("records", __name__)
@@ -23,7 +23,7 @@ def attendance_today():
     records = get_todays_attendance()
     # the template shows today's date in the subtitle, so pass it in as a second variable.
     # anything passed here becomes a normal variable inside the html: {{ today }}
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_date()
 
     # a row is (name, date, time_in, time_out, confidence). counting the ones with no
     # time_out here rather than in the template, because jinja cannot index a plain tuple

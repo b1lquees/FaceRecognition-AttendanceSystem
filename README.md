@@ -18,7 +18,9 @@ as CSV.
 - **Live recognition in the browser** — the webcam feed is captured client-side and sent
   to the server for identification every 1.5 seconds.
 - **Check-in and check-out** — one record per person per day, enforced by the database,
-  with arrival and departure times and the duration between them.
+  with arrival and departure times and the duration between them. Timestamps carry
+  their UTC offset, so a shift spanning a daylight-saving change is measured in real
+  elapsed time rather than in clock faces.
 - **Role-based access** — `viewer` accounts can read attendance; `admin` accounts can also
   export it.
 - **CSV export** — generated in memory and streamed as a download, for opening in Excel or
@@ -81,6 +83,7 @@ attendance/
     recognition.py          identify_face() and the encoding cache
     liveness.py             anti-spoofing gate
     enrolment.py            adding a person from the browser
+    clock.py                timezone-aware timestamps
     formatting.py           duration / time display helpers
     ratelimit.py            login and signup throttling
     models/                 the anti-spoofing weights and their licence
@@ -346,6 +349,7 @@ deployment; anything larger wants Flask-Limiter backed by Redis so the count is 
 | `FLASK_ENV` | unset | Set to `production` to make a missing secret key a hard error, and to require HTTPS for the session cookie. |
 | `LIVENESS_ENABLED` | `0` (off) | Anti-spoofing. Calibrate before turning on — see below. |
 | `LIVENESS_THRESHOLD` | `0.0` | Score above which a face counts as real. Higher is stricter. |
+| `TIMEZONE` | the machine's | IANA name, e.g. `Europe/London`. Times are recorded in this zone. |
 | `LOG_LEVEL` | `INFO` | The audit trail is logged at INFO; raising this discards it. |
 | `LOG_FILE` | unset | Also write a rotating log file. Unset means stderr only. |
 | `KIOSK_MODE` | `1` (on) | `1` for a shared door camera, `0` for personal check-in. See below. |
@@ -396,7 +400,10 @@ anywhere that matters.
   the interface forces that.
 - **SQLite with per-call connections** suits a single classroom-sized deployment. It is not
   appropriate for a multi-site or high-concurrency setup.
-- **Timestamps use the server's local timezone** and are stored as strings.
+- **Attendance rows recorded before the timezone change carry a best guess.** Times
+  used to be stored with no offset at all, so the migration interprets them in the
+  configured zone — right if the server has not moved, and the only defensible guess
+  if it has. Rows written since are exact.
 - **Recognition accuracy depends heavily on enrolment photo quality** — varied lighting and
   angles help considerably. The underlying model is also documented to be less accurate on
   children and to have measurably uneven accuracy across demographic groups.

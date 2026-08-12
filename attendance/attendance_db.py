@@ -1,5 +1,4 @@
-from datetime import datetime
-
+from .clock import local_date, now, stamp
 from .db import connect  # single source of truth for where the database lives
 
 
@@ -26,7 +25,7 @@ def register_student(name):
     # same single-statement pattern as mark_attendance, for the same reason: students.name
     # is declared UNIQUE, so if two requests try to register the same new person at the
     # same moment, the second insert is ignored instead of raising an IntegrityError
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_date()
     cursor.execute(
         "INSERT OR IGNORE INTO students (name, date_registered) VALUES (?, ?)",
         (name, today)
@@ -52,9 +51,10 @@ def check_in(name, confidence):
     conn = connect()
     cursor = conn.cursor()
 
-    # strftime converts the datetime object into a formatted string
-    today = datetime.now().strftime("%Y-%m-%d")
-    now_time = datetime.now().strftime("%H:%M:%S")
+    # one call, so the date and the time cannot straddle midnight and disagree
+    moment = now()
+    today = local_date(moment)
+    arrived = stamp(moment)
 
     # this used to be a SELECT to check for an existing row, then an INSERT if there
     # wasn't one. the problem with that is the gap between the two statements: the camera
@@ -69,7 +69,7 @@ def check_in(name, confidence):
     cursor.execute(
         "INSERT OR IGNORE INTO attendance (student_id, date, time_in, confidence) "
         "VALUES (?, ?, ?, ?)",
-        (student_id, today, now_time, confidence)
+        (student_id, today, arrived, confidence)
     )
     conn.commit()
 
@@ -93,8 +93,9 @@ def check_out(name):
 
     conn = connect()
     cursor = conn.cursor()
-    today = datetime.now().strftime("%Y-%m-%d")
-    now_time = datetime.now().strftime("%H:%M:%S")
+    moment = now()
+    today = local_date(moment)
+    left = stamp(moment)
 
     # the "AND time_out IS NULL" is what makes this safe to call repeatedly: the update
     # only lands the first time, so two frames arriving together cannot both succeed and
@@ -102,7 +103,7 @@ def check_out(name):
     cursor.execute("""
         UPDATE attendance SET time_out = ?
         WHERE student_id = ? AND date = ? AND time_out IS NULL
-    """, (now_time, student_id, today))
+    """, (left, student_id, today))
     conn.commit()
 
     if cursor.rowcount == 1:
@@ -121,7 +122,7 @@ def check_out(name):
 def get_todays_attendance():
     conn = connect()
     cursor = conn.cursor()
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = local_date()
 
     cursor.execute("""
         SELECT students.name, attendance.date, attendance.time_in,

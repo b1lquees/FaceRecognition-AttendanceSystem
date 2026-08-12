@@ -134,6 +134,16 @@ class Config:
     # There is no universally right value -- it depends on the camera and the lighting.
     LIVENESS_THRESHOLD = env_float("LIVENESS_THRESHOLD", default=0.0)
 
+    # --- time ---
+    # An IANA zone name ("Europe/London", "Asia/Karachi"). Unset means whatever the
+    # machine is set to, which is what a single-site deployment usually wants.
+    #
+    # Naming it explicitly is worth doing anyway: it makes the recorded times independent
+    # of the host's configuration, so moving the application to another server -- or a
+    # container, which is almost always UTC -- does not quietly change what new records
+    # mean relative to old ones.
+    TIMEZONE = os.environ.get("TIMEZONE") or None
+
     # --- logging ---
     # INFO because the audit trail is logged at INFO; raising this to WARNING keeps
     # the errors and throws away the record of who approved, enrolled or linked whom.

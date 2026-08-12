@@ -141,3 +141,40 @@ def run_migrations(cursor):
     # inventing a time they left
     if not column_exists(cursor, "attendance", "time_out"):
         cursor.execute("ALTER TABLE attendance ADD COLUMN time_out TEXT")
+
+    give_old_timestamps_an_offset(cursor)
+
+
+def give_old_timestamps_an_offset(cursor):
+    """Rewrite "09:15:42" as "2026-08-12T09:15:42+05:00".
+
+    Times used to be stored naive, with nothing recording which offset they were written
+    in. This is the one migration in the project that cannot be exact: the information
+    was never captured, so it cannot be recovered. Existing rows are interpreted in the
+    configured timezone, which is right if the server has not moved and is the only
+    defensible guess if it has.
+
+    New rows carry their offset, so this is a one-time problem that does not recur.
+    """
+    from .clock import combine, get_timezone, stamp
+
+    # a converted value contains a date and a "T"; an unconverted one is just "HH:MM:SS"
+    rows = cursor.execute("""
+        SELECT id, date, time_in, time_out FROM attendance
+        WHERE time_in IS NOT NULL AND instr(time_in, 'T') = 0
+    """).fetchall()
+
+    if not rows:
+        return
+
+    zone = get_timezone()
+    for row_id, date_text, time_in, time_out in rows:
+        moment_in = combine(date_text, time_in, zone)
+        if moment_in is None:
+            continue  # unreadable: leave it rather than replace it with a guess
+
+        moment_out = combine(date_text, time_out, zone) if time_out else None
+        cursor.execute(
+            "UPDATE attendance SET time_in = ?, time_out = ? WHERE id = ?",
+            (stamp(moment_in), stamp(moment_out) if moment_out else None, row_id),
+        )

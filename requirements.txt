@@ -32,3 +32,8 @@ opencv-python==5.0.0.93
 onnxruntime==1.28.0
 protobuf==7.35.1 # onnxruntime reads the model file, which is a protobuf
 flatbuffers==25.12.19 # onnxruntime uses it for its internal serialised format
+
+# timezone database. Windows has no system tz database at all, so zoneinfo cannot resolve
+# an IANA name like "Asia/Karachi" without this -- and pinning it means every platform
+# agrees on the rules rather than inheriting whatever the host happens to ship.
+tzdata==2026.3

@@ -131,7 +131,12 @@ def test_renaming_time_keeps_the_recorded_values(tmp_path, monkeypatch):
     row = conn.execute("SELECT date, time_in, time_out, confidence FROM attendance").fetchone()
     conn.close()
 
-    assert row == ("2026-01-02", "09:15:00", None, 0.41)
+    date, time_in, time_out, confidence = row
+    assert (date, confidence) == ("2026-01-02", 0.41)
+    # the wall-clock reading survives; what is added is the offset that was missing
+    assert time_in.startswith("2026-01-02T09:15:00")
+    assert time_in != "09:15:00"
+    assert time_out is None
 
 
 # every pre-existing row is someone who checked in before check-out existed. NULL says
@@ -172,3 +177,62 @@ def test_fresh_database_has_the_column(tmp_path, monkeypatch):
     conn = sqlite3.connect(db_path)
     assert column_exists(conn.cursor(), "users", "is_approved")
     conn.close()
+
+
+# --- naive times gaining an offset ------------------------------------------------
+
+# The one migration here that cannot be exact. Times were stored with no record of which
+# offset they were written in, so that information is gone and cannot be recovered. Rows
+# are interpreted in the configured zone, which is right if the server has not moved and
+# is the only defensible guess if it has.
+def test_old_times_are_given_the_configured_offset(tmp_path, monkeypatch):
+    db_path = tmp_path / "old.db"
+    make_old_attendance(db_path)
+    monkeypatch.setenv("ATTENDANCE_DB", str(db_path))
+    monkeypatch.setenv("TIMEZONE", "Asia/Karachi")  # +05:00, no daylight saving
+
+    create_schema()
+
+    conn = sqlite3.connect(db_path)
+    time_in = conn.execute("SELECT time_in FROM attendance").fetchone()[0]
+    conn.close()
+
+    assert time_in == "2026-01-02T09:15:00+05:00"
+
+
+def test_a_zone_with_daylight_saving_gets_the_offset_for_that_date(tmp_path, monkeypatch):
+    db_path = tmp_path / "old.db"
+    make_old_attendance(db_path)
+    monkeypatch.setenv("ATTENDANCE_DB", str(db_path))
+    monkeypatch.setenv("TIMEZONE", "Europe/London")
+
+    create_schema()
+
+    conn = sqlite3.connect(db_path)
+    time_in = conn.execute("SELECT time_in FROM attendance").fetchone()[0]
+    conn.close()
+
+    # 2 January is winter, so GMT rather than BST -- the offset is worked out per row
+    # rather than applied as one blanket value
+    assert time_in == "2026-01-02T09:15:00+00:00"
+
+
+# already-converted rows must not be converted again, or every restart would stack
+# another offset onto them
+def test_converting_twice_changes_nothing(tmp_path, monkeypatch):
+    db_path = tmp_path / "old.db"
+    make_old_attendance(db_path)
+    monkeypatch.setenv("ATTENDANCE_DB", str(db_path))
+    monkeypatch.setenv("TIMEZONE", "Asia/Karachi")
+
+    create_schema()
+    conn = sqlite3.connect(db_path)
+    once = conn.execute("SELECT time_in FROM attendance").fetchone()[0]
+    conn.close()
+
+    create_schema()
+    conn = sqlite3.connect(db_path)
+    twice = conn.execute("SELECT time_in FROM attendance").fetchone()[0]
+    conn.close()
+
+    assert once == twice
