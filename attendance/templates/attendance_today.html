@@ -40,7 +40,11 @@
         <span class="mono">{{ records|length }} record{{ '' if records|length == 1 else 's' }}</span>
     </div>
     <div class="table-wrap">
-        <table>
+        {# "stacked" is what lets this become one card per person on a phone instead of a
+           table you have to drag sideways. Every cell carries the name of its column in
+           data-label, because once the header row is out of view the stylesheet has to
+           get the labels from somewhere. #}
+        <table class="stacked">
             <thead>
                 <tr>
                     <th>Name</th>
@@ -57,7 +61,7 @@
                      time_out is None until the person checks out. -->
                 {% for name, date, time_in, time_out, confidence in records %}
                 <tr>
-                    <td>
+                    <td class="cell-name">
                         <div class="person">
                             <!-- name|length % 5 picks one of the five avatar colours.
                                  it depends only on the name, so a person keeps the
@@ -66,11 +70,11 @@
                             {{ name }}
                         </div>
                     </td>
-                    <td class="mono">{{ date }}</td>
-                    <td class="mono">{{ time_in | short_time }}</td>
-                    <td class="mono">{{ time_out | short_time }}</td>
-                    <td class="mono">{{ duration(time_in, time_out) }}</td>
-                    <td>
+                    <td class="mono" data-label="Date">{{ date }}</td>
+                    <td class="mono" data-label="In">{{ time_in | short_time }}</td>
+                    <td class="mono" data-label="Out">{{ time_out | short_time }}</td>
+                    <td class="mono" data-label="Duration">{{ duration(time_in, time_out) }}</td>
+                    <td data-label="Match">
                         {% if confidence is none %}
                         <span class="match-value na">n/a</span>
                         {% else %}

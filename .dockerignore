@@ -1,0 +1,14 @@
+known_faces/
+attendance.db
+encodings.npz
+venv/
+.git/
+**/__pycache__
+.env
+.claude/
+.flask_secret_dev
+.pytest_cache/
+.ruff_cache/
+notes.txt
+.github/
+docs/

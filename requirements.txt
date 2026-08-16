@@ -37,3 +37,5 @@ flatbuffers==25.12.19 # onnxruntime uses it for its internal serialised format
 # an IANA name like "Asia/Karachi" without this -- and pinning it means every platform
 # agrees on the rules rather than inheriting whatever the host happens to ship.
 tzdata==2026.3
+
+gunicorn==23.0.0

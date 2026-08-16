@@ -1,9 +1,14 @@
 {# The shared page shell. Every other template starts with {% extends "base.html" %}
-   and fills in the blocks below, so the <head>, the nav and the flash messages exist in
-   exactly one place. Before this, each page repeated all three and they drifted apart.
+   and fills in the blocks below, so the <head>, the sidebar and the flash messages exist
+   in exactly one place. Before this, each page repeated all three and they drifted apart.
 
    A block is a named hole a child template can fill. If a child doesn't fill one, the
-   default content here is used. #}
+   default content here is used.
+
+   The layout is a fixed sidebar plus a content column. On a phone the sidebar slides in
+   from the left instead, driven by the hidden checkbox below rather than javascript --
+   the nav then works on a page whose script failed to load, and there is no flash of an
+   open drawer before a script gets round to closing it. #}
 <!DOCTYPE html>
 <html lang="en">
 
@@ -12,7 +17,33 @@
     <!-- viewport tells phones to use the real screen width instead of pretending
          to be a 980px desktop and zooming out -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <!-- tells the browser both themes are supported, so form controls and scrollbars
+         are drawn dark in dark mode instead of staying stubbornly light -->
+    <meta name="color-scheme" content="light dark">
+
+    {# The only script in the <head>, and it is here on purpose: it has to run before the
+       page is painted, or someone who chose light would see a frame of dark first, and
+       someone who hid the menu would watch it appear and then leave on every page they
+       open. All it does is copy the two stored preferences onto <html>, where the
+       stylesheet reads them. Nothing stored means no attribute, and the page behaves
+       exactly as it did before either switch existed. localStorage throws rather than
+       returning null when a browser has storage blocked, which is what the try is for. #}
+    <script>
+        try {
+            var savedTheme = localStorage.getItem("theme");
+            if (savedTheme === "light" || savedTheme === "dark") {
+                document.documentElement.dataset.theme = savedTheme;
+            }
+            if (localStorage.getItem("nav") === "collapsed") {
+                document.documentElement.dataset.nav = "collapsed";
+            }
+        } catch (error) { /* storage unavailable; both fall back to the defaults */ }
+    </script>
+
     <title>{% block title %}Attendance{% endblock %}</title>
+    <!-- the favicon is inline rather than a file: one less request, and nothing to
+         forget to copy when the app is deployed -->
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><path d='M27.5 3.5C25.5 19 17 26.5 4.5 28.5 2.5 14 11 6 27.5 3.5Z' fill='%237cc4a0'/><path d='M27.5 3.5C18.5 10 11 17.5 4.5 28.5' stroke='%232f7a56' stroke-width='2' stroke-linecap='round' fill='none'/></svg>">
     <!-- url_for('static', ...) asks flask to build the url for a file in static/
          instead of hardcoding "/static/style.css" -->
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
@@ -20,49 +51,279 @@
 </head>
 
 <body>
-    <div class="{% block wrapper_class %}page{% endblock %}">
+    {# One copy of every icon, referenced with <use href="#name"> wherever it is needed.
+       Drawing them once keeps the markup below readable, and the leaf only has to be got
+       right in one place. The colours come from custom properties because those inherit
+       into a <use> instance, which ordinary css selectors cannot reach. #}
+    <svg class="svg-sprite" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg">
+        <symbol id="i-leaf" viewBox="0 0 48 52">
+            <!-- the blade: two arcs meeting at the tip (top right) and the base (bottom
+                 left), which is all a leaf silhouette really is -->
+            <path d="M42 6C22 8 8 22 8 42 28 40 40 26 42 6Z" style="fill: var(--leaf-body)" />
+            <g fill="none" stroke-linecap="round" style="stroke: var(--leaf-vein)">
+                <!-- midrib, then the side veins branching off it -->
+                <path d="M42 6C29 15 17 28 6 48" stroke-width="2.2" />
+                <g stroke-width="1.3" style="opacity: .65">
+                    <path d="M33 14C29 12 26 11.5 23 12.5" />
+                    <path d="M33 14C36.5 15 38.5 16 40 17.5" />
+                    <path d="M25 23C21 21.5 18 21 15 21.5" />
+                    <path d="M25 23C28.5 24 31 25 33.5 26.5" />
+                    <path d="M17 32C14 31 12 30.7 10 31" />
+                    <path d="M17 32C20 33 22 34.3 24 36" />
+                </g>
+            </g>
+        </symbol>
 
-        {% block nav %}
-        {# session is available in every template without being passed in. the nav only
-           makes sense once you're logged in, so logged-out pages get nothing. #}
-        {% if session.username %}
-        <nav>
-            <a href="{{ url_for('records.attendance_today') }}"
-               class="{{ 'active' if active_page == 'today' }}">Today</a>
-            <a href="{{ url_for('records.attendance_all') }}"
-               class="{{ 'active' if active_page == 'all' }}">All Records</a>
-            <a href="{{ url_for('recognition.camera') }}"
-               class="{{ 'active' if active_page == 'camera' }}">Camera</a>
-            {% if session.role == 'admin' %}
-            <a href="{{ url_for('records.export_attendance') }}">Export CSV</a>
-            <a href="{{ url_for('admin.enrol_person') }}"
-               class="{{ 'active' if active_page == 'enrol' }}">Enrol</a>
-            <a href="{{ url_for('admin.users') }}"
-               class="{{ 'active' if active_page == 'accounts' }}">Accounts</a>
-            {% endif %}
-            <span class="nav-spacer"></span>
-            <a href="{{ url_for('auth.change_own_password') }}" class="nav-who"
-               title="Change password">{{ session.username }}</a>
-            <a href="{{ url_for('auth.logout') }}">Log out</a>
-        </nav>
-        {% endif %}
-        {% endblock %}
+        {# nav icons: one stroked 24x24 grid so they all read at the same weight #}
+        <symbol id="i-today" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="4.5" width="18" height="16" rx="3" />
+            <path d="M3 9.5h18M8 2.5v4M16 2.5v4M9 14.5l2 2 4-4" />
+        </symbol>
+        <symbol id="i-archive" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 7h16M4 12h16M4 17h10" />
+        </symbol>
+        <symbol id="i-camera" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <path d="M22 18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.6-2.5h6.8L17 7h3a2 2 0 0 1 2 2z" />
+            <circle cx="12" cy="13" r="3.6" />
+        </symbol>
+        <symbol id="i-export" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 3v11m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
+        </symbol>
+        <symbol id="i-enrol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="9.5" cy="8" r="3.8" />
+            <path d="M3 20c0-3.3 2.9-5.5 6.5-5.5s6.5 2.2 6.5 5.5M18.5 7.5v6M21.5 10.5h-6" />
+        </symbol>
+        <symbol id="i-accounts" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="9" cy="8" r="3.6" />
+            <path d="M2.5 19.5c0-3.2 2.9-5.3 6.5-5.3s6.5 2.1 6.5 5.3M16.5 5.2a3.4 3.4 0 0 1 0 6.4M18 14.6c2.2.5 3.7 1.9 3.7 4" />
+        </symbol>
+        <symbol id="i-key" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="7.5" cy="12" r="4" />
+            <path d="M11.5 12H21M18 12v3.5M14.8 12v2.5" />
+        </symbol>
+        <symbol id="i-logout" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 4.5h3.5a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H14M10 8l-4 4 4 4M6 12h9" />
+        </symbol>
+        <symbol id="i-menu" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                stroke-linecap="round">
+            <path d="M4 7h16M4 12h16M4 17h16" />
+        </symbol>
+        <symbol id="i-close" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"
+                stroke-linecap="round">
+            <path d="M6 6l12 12M18 6L6 18" />
+        </symbol>
+        <symbol id="i-collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+                stroke-linecap="round" stroke-linejoin="round">
+            <path d="M13.5 7.5L9 12l4.5 4.5M18.5 5v14" />
+        </symbol>
+        <symbol id="i-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.5 14.8A8.7 8.7 0 0 1 9.2 3.5a8.7 8.7 0 1 0 11.3 11.3z" />
+        </symbol>
+        <symbol id="i-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="4.2" />
+            <path d="M12 2.4v2.3M12 19.3v2.3M4.2 4.2l1.7 1.7M18.1 18.1l1.7 1.7M2.4 12h2.3M19.3 12h2.3M4.2 19.8l1.7-1.7M18.1 5.9l1.7-1.7" />
+        </symbol>
+    </svg>
 
-        {# flashed messages are set by a route with flash() and survive exactly one
-           redirect, which is how the admin page reports what a POST did #}
-        {% with messages = get_flashed_messages(with_categories=true) %}
-        {% if messages %}
-        {% for category, message in messages %}
-        <div class="flash flash-{{ category }}">{{ message }}</div>
-        {% endfor %}
-        {% endif %}
-        {% endwith %}
+    {% block nav %}
+    {# session is available in every template without being passed in. the nav only
+       makes sense once you're logged in, so logged-out pages get nothing. #}
+    {% if session.username %}
+    <a class="skip-link" href="#main">Skip to content</a>
 
-        {% block content %}{% endblock %}
+    {# the drawer's entire state. it is off-screen rather than display:none so it stays
+       focusable, which is what lets the hamburger label be operated from the keyboard #}
+    <input class="drawer-toggle" type="checkbox" id="drawer" aria-label="Show navigation">
+
+    <div class="topbar">
+        <label class="hamburger" for="drawer">
+            <svg class="nav-icon" aria-hidden="true"><use href="#i-menu" /></svg>
+            <span class="sr-only">Menu</span>
+        </label>
+        <span class="topbar-brand">
+            <span class="brand-mark brand-mark-sm" aria-hidden="true">
+                <svg viewBox="0 0 48 52"><use href="#i-leaf" /></svg>
+            </span>
+            Attendance
+        </span>
     </div>
+
+    {# tapping anywhere off the open drawer closes it, because the scrim is another label
+       for the same checkbox #}
+    <label class="scrim" for="drawer"><span class="sr-only">Close navigation</span></label>
+
+    <aside class="sidebar">
+        <a class="brand" href="{{ url_for('records.attendance_today') }}">
+            <span class="brand-mark" aria-hidden="true">
+                <svg viewBox="0 0 48 52"><use href="#i-leaf" /></svg>
+            </span>
+            <span class="brand-text">
+                <span class="brand-name">Attendance</span>
+                <span class="brand-tag">the hive register</span>
+            </span>
+        </a>
+
+        {# a third label for the same checkbox. the scrim closes the drawer too, but on a
+           narrow phone it is a 70px strip down one side, which is not where a thumb goes
+           looking for a way out #}
+        <label class="drawer-close" for="drawer">
+            <svg class="nav-icon" aria-hidden="true"><use href="#i-close" /></svg>
+            <span class="sr-only">Close navigation</span>
+        </label>
+
+        {# the desktop equivalent, and a different thing entirely: the drawer above is a
+           per-page state, while this is a preference that has to survive following a
+           link, so it is stored rather than held in a checkbox #}
+        <button class="nav-collapse" type="button" data-nav-toggle>
+            <svg class="nav-icon" aria-hidden="true"><use href="#i-collapse" /></svg>
+            <span class="sr-only">Hide the menu</span>
+        </button>
+
+        <nav class="side-nav" aria-label="Main">
+            <p class="nav-label">Register</p>
+            <a class="nav-link {{ 'is-active' if active_page == 'today' }}"
+               href="{{ url_for('records.attendance_today') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-today" /></svg>Today
+            </a>
+            <a class="nav-link {{ 'is-active' if active_page == 'all' }}"
+               href="{{ url_for('records.attendance_all') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-archive" /></svg>All records
+            </a>
+            <a class="nav-link {{ 'is-active' if active_page == 'camera' }}"
+               href="{{ url_for('recognition.camera') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-camera" /></svg>Camera
+            </a>
+
+            {% if session.role == 'admin' %}
+            <p class="nav-label">Administration</p>
+            <a class="nav-link {{ 'is-active' if active_page == 'enrol' }}"
+               href="{{ url_for('admin.enrol_person') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-enrol" /></svg>Enrol
+            </a>
+            <a class="nav-link {{ 'is-active' if active_page == 'accounts' }}"
+               href="{{ url_for('admin.users') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-accounts" /></svg>Accounts
+            </a>
+            <a class="nav-link" href="{{ url_for('records.export_attendance') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-export" /></svg>Export CSV
+            </a>
+            {% endif %}
+        </nav>
+
+        <div class="side-foot">
+            <a class="user-chip" href="{{ url_for('auth.change_own_password') }}" title="Change password">
+                <span class="user-avatar" aria-hidden="true">{{ session.username[0]|upper }}</span>
+                <span class="user-meta">
+                    <span class="user-name">{{ session.username }}</span>
+                    <span class="user-role">{{ session.role or 'signed in' }}</span>
+                </span>
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-key" /></svg>
+            </a>
+            {# both halves of this button are always in the markup; the stylesheet shows
+               whichever one the current theme calls for, so the label is right on the
+               first frame without a script having to correct it #}
+            <button class="nav-link theme-toggle" type="button" data-theme-toggle>
+                <svg class="nav-icon when-light" aria-hidden="true"><use href="#i-moon" /></svg>
+                <svg class="nav-icon when-dark" aria-hidden="true"><use href="#i-sun" /></svg>
+                <span class="when-light">Dark mode</span>
+                <span class="when-dark">Light mode</span>
+            </button>
+
+            <a class="nav-link logout" href="{{ url_for('auth.logout') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-logout" /></svg>Log out
+            </a>
+        </div>
+    </aside>
+
+    {# the way back. it is only drawn while the menu is hidden, and only on a screen wide
+       enough for the menu to have been hidden in the first place #}
+    <button class="nav-float" type="button" data-nav-toggle>
+        <svg class="nav-icon" aria-hidden="true"><use href="#i-menu" /></svg>
+        <span class="sr-only">Show the menu</span>
+    </button>
+    {% endif %}
+    {% endblock %}
+
+    {# the sign-in and sign-up pages have no sidebar, and they are the first thing anyone
+       sees, so the switch gets a small floating version of its own there #}
+    {% if not session.username %}
+    <button class="theme-toggle theme-float" type="button" data-theme-toggle>
+        <svg class="nav-icon when-light" aria-hidden="true"><use href="#i-moon" /></svg>
+        <svg class="nav-icon when-dark" aria-hidden="true"><use href="#i-sun" /></svg>
+        <span class="sr-only">Switch between the light and dark theme</span>
+    </button>
+    {% endif %}
+
+    <main id="main" class="shell{{ ' shell-app' if session.username }}">
+        <div class="{% block wrapper_class %}page{% endblock %}">
+
+            {# flashed messages are set by a route with flash() and survive exactly one
+               redirect, which is how the admin page reports what a POST did #}
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+            {% endif %}
+            {% endwith %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </main>
 
     {# scripts go last so the elements they reach for already exist in the document #}
     {% block scripts %}{% endblock %}
+
+    {# outside the block above, because a child template that fills `scripts` replaces
+       whatever the block held -- the camera page would otherwise switch the theme switch
+       off. matchMedia is what the system would have chosen, so the first click always
+       flips away from the theme you are actually looking at. #}
+    <script>
+        (function () {
+            var root = document.documentElement;
+
+            function currentTheme() {
+                return root.dataset.theme
+                    || (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+            }
+
+            document.querySelectorAll("[data-theme-toggle]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    var next = currentTheme() === "dark" ? "light" : "dark";
+                    root.dataset.theme = next;
+                    try {
+                        localStorage.setItem("theme", next);
+                    } catch (error) { /* the switch still works, it just won't be remembered */ }
+                });
+            });
+
+            // hiding the sidebar. both the button in the sidebar and the one that
+            // replaces it flip the same attribute, so either can undo the other.
+            document.querySelectorAll("[data-nav-toggle]").forEach(function (button) {
+                button.addEventListener("click", function () {
+                    var collapsed = root.dataset.nav === "collapsed";
+                    if (collapsed) {
+                        delete root.dataset.nav;
+                    } else {
+                        root.dataset.nav = "collapsed";
+                    }
+                    try {
+                        localStorage.setItem("nav", collapsed ? "open" : "collapsed");
+                    } catch (error) { /* same again: works now, forgotten on the next page */ }
+                });
+            });
+        })();
+    </script>
 </body>
 
 </html>

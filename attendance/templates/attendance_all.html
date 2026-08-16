@@ -46,7 +46,8 @@
         </form>
     </div>
     <div class="table-wrap">
-        <table>
+        {# "stacked" turns each row into a card on a phone -- see attendance_today.html #}
+        <table class="stacked">
             <thead>
                 <tr>
                     <th>Name</th>
@@ -60,17 +61,17 @@
             <tbody id="rows">
                 {% for name, date, time_in, time_out, confidence in records %}
                 <tr>
-                    <td>
+                    <td class="cell-name">
                         <div class="person">
                             <span class="avatar c{{ name|length % 5 }}">{{ name[0]|upper }}</span>
                             {{ name }}
                         </div>
                     </td>
-                    <td class="mono">{{ date }}</td>
-                    <td class="mono">{{ time_in | short_time }}</td>
-                    <td class="mono">{{ time_out | short_time }}</td>
-                    <td class="mono">{{ duration(time_in, time_out) }}</td>
-                    <td>
+                    <td class="mono" data-label="Date">{{ date }}</td>
+                    <td class="mono" data-label="In">{{ time_in | short_time }}</td>
+                    <td class="mono" data-label="Out">{{ time_out | short_time }}</td>
+                    <td class="mono" data-label="Duration">{{ duration(time_in, time_out) }}</td>
+                    <td data-label="Match">
                         {% if confidence is none %}
                         <span class="match-value na">n/a</span>
                         {% else %}

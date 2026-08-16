@@ -34,7 +34,7 @@ UNSTYLED_CLASSES = set()
 # Tokens that live in :root only, with no dark-mode override, because they are not
 # colours. A radius is the same in both themes; overriding it would be noise. Anything
 # colour-like missing from the dark block is a bug, which is what the test below checks.
-LIGHT_ONLY_TOKENS = {"--radius"}
+LIGHT_ONLY_TOKENS = {"--radius", "--radius-sm", "--sidebar"}
 
 
 def css_class_names():
@@ -116,17 +116,27 @@ def test_every_custom_property_used_is_defined():
     )
 
 
-# The two theme blocks have to define the same set of names. A token added to the light
-# block alone looks fine until somebody views the page in dark mode, where that one rule
-# quietly loses its value -- exactly the kind of thing no test here would otherwise see.
-def test_dark_mode_defines_the_same_tokens_as_light():
-    light = re.search(r":root\s*\{([^}]*)\}", CSS_WITHOUT_COMMENTS)
-    dark = re.search(
-        r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root\s*\{([^}]*)\}",
-        CSS_WITHOUT_COMMENTS,
-    )
+# The palette lives in three blocks, not two: light, dark-because-the-system-says-so, and
+# dark-because-the-theme-switch-says-so. The last two are the same list of values written
+# out twice, which is exactly the arrangement that drifts -- somebody tunes a colour, sees
+# it change, and never learns that they only fixed one of the two ways to be in dark mode.
+DARK_BLOCK_PATTERNS = {
+    "the prefers-color-scheme block": (
+        r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*:root[^{]*\{([^}]*)\}"
+    ),
+    'the [data-theme="dark"] block': r':root\[data-theme="dark"\]\s*\{([^}]*)\}',
+}
 
-    assert light and dark, "expected a :root block and a dark-mode override of it"
+
+@pytest.mark.parametrize("name, pattern", DARK_BLOCK_PATTERNS.items(), ids=lambda v: str(v)[:24])
+def test_each_dark_block_defines_the_same_tokens_as_light(name, pattern):
+    # the bare `:root {` is the light block; the dark ones both qualify it, with a
+    # :not() or an attribute, so neither can match this
+    light = re.search(r":root\s*\{([^}]*)\}", CSS_WITHOUT_COMMENTS)
+    dark = re.search(pattern, CSS_WITHOUT_COMMENTS)
+
+    assert light, "expected a bare :root block holding the light palette"
+    assert dark, f"expected {name} -- without it that route into dark mode has no palette"
 
     light_tokens = defined_tokens(light.group(1))
     dark_tokens = defined_tokens(dark.group(1))
@@ -134,15 +144,32 @@ def test_dark_mode_defines_the_same_tokens_as_light():
     # dark must not introduce a token light does not have -- that is a typo, and the
     # misspelled name silently resolves to nothing in dark mode only
     assert not (dark_tokens - light_tokens), (
-        f"defined only in the dark block: {sorted(dark_tokens - light_tokens)}. "
+        f"defined only in {name}: {sorted(dark_tokens - light_tokens)}. "
         "A name that exists in one theme and not the other is almost always a typo."
     )
 
     # and every light token except the documented non-colour ones needs an override
     missing = sorted(light_tokens - dark_tokens - LIGHT_ONLY_TOKENS)
     assert not missing, (
-        f"no dark-mode value for: {missing}. The rule using it keeps its light colour "
+        f"no value in {name} for: {missing}. The rule using it keeps its light colour "
         "in dark mode, which is the kind of thing only a human looking at the page sees."
+    )
+
+
+# Choosing light on a machine set to dark is the whole point of the switch, and it only
+# works because the media query excludes that case. Without the :not() the media query and
+# the attribute both match, the media query is later in the file, and the button appears
+# to do nothing at all in one direction.
+def test_the_system_dark_rule_yields_to_an_explicit_light_choice():
+    dark_media = re.search(
+        r"@media\s*\(prefers-color-scheme:\s*dark\)\s*\{\s*(:root[^{]*)\{",
+        CSS_WITHOUT_COMMENTS,
+    )
+
+    assert dark_media, "expected a prefers-color-scheme: dark block"
+    assert ':not([data-theme="light"])' in dark_media.group(1), (
+        "the system dark rule must exclude an explicit light choice, or the theme switch "
+        "cannot turn dark mode off on a machine whose system theme is dark."
     )
 
 

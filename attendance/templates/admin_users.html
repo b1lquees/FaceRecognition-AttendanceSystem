@@ -50,7 +50,8 @@
 
     {% if pending %}
     <div class="table-wrap">
-        <table>
+        {# "stacked" turns each row into a card on a phone -- see attendance_today.html #}
+        <table class="stacked">
             <thead>
                 <tr>
                     <th>Username</th>
@@ -61,13 +62,13 @@
                 {# each row is a tuple (id, username) from list_pending_users() #}
                 {% for user_id, username in pending %}
                 <tr>
-                    <td>
+                    <td class="cell-name">
                         <div class="person">
                             <span class="avatar">{{ username[0]|upper }}</span>
                             <span>{{ username }}</span>
                         </div>
                     </td>
-                    <td class="col-actions">
+                    <td class="col-actions" data-label="Decision">
                         {# two separate forms because each posts to a different url.
                            these are POSTs, not links: a GET could be triggered by any
                            page embedding the url, and browsers follow those on their own #}
@@ -103,7 +104,7 @@
     </div>
 
     <div class="table-wrap">
-        <table>
+        <table class="stacked">
             <thead>
                 <tr>
                     <th>Username</th>
@@ -116,16 +117,16 @@
                    two are NULL when the account has not been linked to anyone #}
                 {% for user_id, username, role, student_id, student_name in approved %}
                 <tr>
-                    <td>
+                    <td class="cell-name">
                         <div class="person">
                             <span class="avatar">{{ username[0]|upper }}</span>
                             <span>{{ username }}</span>
                         </div>
                     </td>
-                    <td>
+                    <td data-label="Role">
                         <span class="pill {{ 'pill-accent' if role == 'admin' }}">{{ role }}</span>
                     </td>
-                    <td>
+                    <td data-label="Enrolled person">
                         <form method="POST" action="{{ url_for('admin.link', user_id=user_id) }}"
                               class="link-form">
                             <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
