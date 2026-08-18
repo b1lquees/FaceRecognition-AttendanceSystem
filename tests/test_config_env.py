@@ -1,6 +1,8 @@
+from pathlib import Path
+
 import pytest
 
-from attendance.config import env_flag, env_float
+from attendance.config import env_flag, env_float, env_path
 
 
 @pytest.mark.parametrize("value", ["0", "false", "FALSE", "No", "off", " off "])
@@ -60,3 +62,37 @@ def test_a_malformed_number_is_refused(monkeypatch):
 
     with pytest.raises(RuntimeError, match="must be a number"):
         env_float("A_NUMBER", default=0.0)
+
+
+# --- paths ------------------------------------------------------------------------
+
+# What this is for: in a container the source lives in an image that gets rebuilt and
+# thrown away, while the database, the photos and the encoding cache have to outlive it.
+# All three used to be pinned next to the source with no way to say otherwise.
+def test_a_path_comes_from_the_environment_when_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("A_PATH", str(tmp_path / "somewhere.db"))
+
+    assert env_path("A_PATH", default="/default/place.db") == tmp_path / "somewhere.db"
+
+
+def test_an_unset_path_uses_the_default(monkeypatch):
+    monkeypatch.delenv("A_PATH", raising=False)
+
+    assert env_path("A_PATH", default="/default/place.db") == Path("/default/place.db")
+
+
+# same rule as env_flag, and the same reason: `setx NAME ""` leaves an empty string, and
+# reading that as a path would quietly put the database in the working directory
+@pytest.mark.parametrize("value", ["", " ", "\t"])
+def test_an_empty_path_is_treated_as_unset(monkeypatch, value):
+    monkeypatch.setenv("A_PATH", value)
+
+    assert env_path("A_PATH", default="/default/place.db") == Path("/default/place.db")
+
+
+# a trailing space is invisible in a Dockerfile and legal in a filename, so an untrimmed
+# value would create a directory that looks identical to the one that was meant
+def test_surrounding_whitespace_is_trimmed(monkeypatch):
+    monkeypatch.setenv("A_PATH", "  /data/known_faces  ")
+
+    assert env_path("A_PATH", default="/somewhere/else") == Path("/data/known_faces")

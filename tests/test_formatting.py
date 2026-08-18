@@ -1,6 +1,13 @@
 import pytest
 
-from attendance.formatting import MISSING, duration, short_time
+from attendance.formatting import (
+    MISSING,
+    duration,
+    match_bands,
+    match_quality,
+    match_strength,
+    short_time,
+)
 
 
 def at(text):
@@ -80,3 +87,52 @@ def test_short_time_of_nothing():
 
 def test_short_time_of_something_unreadable():
     assert short_time("not a timestamp") == MISSING
+
+
+# --- the match column ------------------------------------------------------------
+
+# The bands are fractions of the tolerance, and this is the reason: at the 0.6 this
+# project started with they have to come out as the 0.40 and 0.50 the pages used to
+# hardcode, or lowering the tolerance would silently redefine what "strong" meant.
+def test_the_bands_match_the_numbers_the_pages_used_to_hardcode():
+    strong, fair = match_bands(0.6)
+
+    assert round(strong, 2) == 0.40
+    assert round(fair, 2) == 0.50
+
+
+@pytest.mark.parametrize(
+    "distance, expected",
+    [
+        (0.0, ""),        # identical
+        (0.33, ""),       # just inside strong at a tolerance of 0.5
+        (0.34, "good"),
+        (0.41, "good"),
+        (0.42, "weak"),   # past fair, still recorded
+        (0.55, "weak"),   # recorded under the older, more forgiving cutoff
+    ],
+)
+def test_quality_names_the_band(distance, expected):
+    assert match_quality(distance, tolerance=0.5) == expected
+
+
+@pytest.mark.parametrize(
+    "distance, expected",
+    [
+        (0.0, 100),   # identical
+        (0.25, 50),
+        (0.5, 0),     # exactly at the cutoff
+    ],
+)
+def test_strength_measures_the_distance_against_the_cutoff(distance, expected):
+    assert match_strength(distance, tolerance=0.5) == expected
+
+
+# rows recorded while the cutoff was 0.6 are still in the database, and 0.55 against a
+# cutoff of 0.5 is -10%. A negative width is not a bar, it is a broken page.
+def test_strength_of_a_row_from_a_more_forgiving_era_is_clamped():
+    assert match_strength(0.55, tolerance=0.5) == 0
+
+
+def test_strength_survives_a_tolerance_of_zero():
+    assert match_strength(0.3, tolerance=0) == 0

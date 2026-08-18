@@ -78,15 +78,16 @@
                         {% if confidence is none %}
                         <span class="match-value na">n/a</span>
                         {% else %}
-                        <!-- confidence stored here is really the face DISTANCE from
-                             identify_face: 0 = identical, 0.6 = the tolerance cutoff.
-                             so flip it into a 0-100% "strength" for the bar, and clamp
-                             it with the max/min filters so it can't overflow the meter -->
-                        {% set strength = ((1 - confidence / 0.6) * 100) | round | int %}
-                        {% set strength = [[strength, 0] | max, 100] | min %}
-                        {% set quality = '' if confidence <= 0.4 else ('good' if confidence <= 0.5 else 'weak') %}
+                        {# confidence stored here is really the face DISTANCE from
+                           identify_face: 0 is identical and the tolerance is the cutoff.
+                           Turning that into a bar and a colour is arithmetic against a
+                           value this page does not own, so both live in formatting.py
+                           and arrive already bound to the current tolerance. #}
+                        {% set quality = match_quality(confidence) %}
                         <div class="match">
-                            <div class="meter {{ quality }}"><span style="width: {{ strength }}%"></span></div>
+                            <div class="meter {{ quality }}">
+                                <span style="width: {{ match_strength(confidence) }}%"></span>
+                            </div>
                             <span class="match-value {{ quality }}">{{ '%.2f'|format(confidence) }}</span>
                         </div>
                         {% endif %}
@@ -116,7 +117,10 @@
 </div>
 
 {% if records %}
-<p class="note">Match is the face distance &mdash; lower is closer. Under 0.40 is strong,
-    0.40&ndash;0.50 fair, above 0.50 borderline (recognition tolerance is 0.60).</p>
+{# the numbers come from the tolerance rather than being written out, so this sentence
+   cannot end up describing a cutoff the recogniser stopped using #}
+<p class="note">Match is the face distance &mdash; lower is closer. Under
+    {{ '%.2f'|format(match_strong) }} is strong, {{ '%.2f'|format(match_strong) }}&ndash;{{ '%.2f'|format(match_fair) }}
+    fair, above that borderline (recognition tolerance is {{ '%.2f'|format(tolerance) }}).</p>
 {% endif %}
 {% endblock %}

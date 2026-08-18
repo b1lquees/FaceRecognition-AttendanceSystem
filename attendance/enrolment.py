@@ -18,6 +18,7 @@ import face_recognition
 import numpy as np
 
 from .attendance_db import register_student
+from .config import env_path
 from .recognition import (
     PROJECT_ROOT,
     load_known_encodings,
@@ -25,7 +26,9 @@ from .recognition import (
     save_known_encodings,
 )
 
-KNOWN_FACES_DIR = PROJECT_ROOT / "known_faces"
+# next to the source in a checkout, wherever KNOWN_FACES_DIR points in a deployment --
+# see env_path() in config.py for why the photos need to be able to live elsewhere
+KNOWN_FACES_DIR = env_path("KNOWN_FACES_DIR", PROJECT_ROOT / "known_faces")
 
 # Deliberately strict, because this string becomes a directory name. Letters, digits,
 # spaces, dots, apostrophes and hyphens cover ordinary names; anything else is refused

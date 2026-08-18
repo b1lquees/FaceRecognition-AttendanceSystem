@@ -64,10 +64,26 @@ def create_app(config=None):
 
     # display helpers, so the templates can write {{ t_in | short_time }} instead of
     # doing string slicing and arithmetic inline
-    from .formatting import duration, short_time
+    from functools import partial
+
+    from .formatting import duration, match_bands, match_quality, match_strength, short_time
+    from .recognition import TOLERANCE
 
     app.jinja_env.filters["short_time"] = short_time
     app.jinja_env.globals["duration"] = duration
+
+    # The match column is drawn relative to the recognition cutoff, so the pages have to
+    # know what it currently is. Bound here rather than read in the template: a template
+    # that imports a constant to do arithmetic with is how the old hardcoded 0.6 ended up
+    # in two files and outlived the value it was copied from.
+    strong, fair = match_bands(TOLERANCE)
+    app.jinja_env.globals.update(
+        tolerance=TOLERANCE,
+        match_strong=strong,
+        match_fair=fair,
+        match_quality=partial(match_quality, tolerance=TOLERANCE),
+        match_strength=partial(match_strength, tolerance=TOLERANCE),
+    )
 
     # without these an error falls out of the site's design into a bare Werkzeug page
     from .errors import register_error_handlers

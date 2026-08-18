@@ -13,6 +13,8 @@ from pathlib import Path
 import face_recognition
 import numpy as np
 
+from .config import env_path
+
 # recognition.py lives in attendance/, so the project root is one level up
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -21,7 +23,13 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 # server. That was an acceptable risk while only a shell user could produce it. Enrolment
 # from the browser means the web application now writes this file, and a format that
 # executes on load is the wrong shape for that entirely.
-ENCODINGS_FILE = PROJECT_ROOT / "encodings.npz"
+#
+# Read once, at import, rather than on every call the way get_db_path() does. The
+# difference is who overrides it: the database path is redirected by tests that set the
+# variable after this package has been imported, while this one is redirected either by a
+# deployment, which sets it before the process starts, or by the test suite's `storage`
+# fixture, which replaces this attribute directly.
+ENCODINGS_FILE = env_path("ENCODINGS_FILE", PROJECT_ROOT / "encodings.npz")
 
 # stored as two parallel arrays rather than one dictionary: npz keys become entry names
 # inside a zip, and person names are user input, so using them as keys would mean
@@ -34,10 +42,21 @@ ENCODING_LENGTH = 128  # dlib's face encoder always produces a 128-d vector
 # the threshold that decides whether a detected face counts as a match. if the smallest
 # distance to a known face is at or below this, it is that person; above it, "Unknown".
 #
-# lower (say 0.4) is stricter: fewer false matches, but more failures to recognise
-# someone whose lighting or appearance has changed. higher (0.7+) is more forgiving and
-# correspondingly more likely to confuse two different people.
-TOLERANCE = 0.6
+# lower is stricter: fewer false matches, but more failures to recognise someone whose
+# lighting or appearance has changed. higher (0.7+) is more forgiving and correspondingly
+# more likely to confuse two different people.
+#
+# 0.5 rather than the 0.6 this started at, and than the 0.6 dlib suggests as a general
+# default. The failure that matters here is marking the wrong person present, which is a
+# false attendance record that nobody looking at the register would ever spot; a face that
+# is not recognised is obvious, immediate, and fixed by standing there another second and
+# a half. Two similar-looking people confusing the matcher is the specific thing this
+# guards against.
+#
+# Rows already in the database were recorded under the old cutoff, so distances between
+# 0.5 and 0.6 exist in the history and will now show as borderline in the match column.
+# They are not wrong -- they were accepted under the rule in force at the time.
+TOLERANCE = 0.5
 
 # Face *detection* is the expensive step and it does not need full resolution, so frames
 # are shrunk before being searched. At 0.5 the detector looks at a quarter of the pixels.

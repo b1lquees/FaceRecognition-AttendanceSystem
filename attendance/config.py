@@ -50,6 +50,26 @@ def env_float(name, default):
         ) from None
 
 
+def env_path(name, default):
+    """Read a filesystem path from the environment, falling back to a default.
+
+    The three things this application writes -- the database, the enrolment photos and
+    the encoding cache -- all sat next to the source code. That is right for a checkout
+    and wrong for a container, where the source lives in an image that is thrown away and
+    rebuilt while the data has to outlive it. Each of them now names an environment
+    variable so a deployment can point it somewhere that persists; unset, every one of
+    them still resolves exactly where it always did.
+
+    Empty means unset, for the same reason as env_flag: `setx NAME ""` is how a variable
+    gets cleared on Windows, and it leaves an empty string behind. Reading that as a path
+    would send the data to the process's working directory.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return Path(default)
+    return Path(raw.strip())
+
+
 def generate_dev_secret_key():
     """Return a development key, generating and caching one on first use.
 

@@ -75,12 +75,13 @@
                         {% if confidence is none %}
                         <span class="match-value na">n/a</span>
                         {% else %}
-                        <!-- distance -> 0-100% strength, clamped so it can't overflow -->
-                        {% set strength = ((1 - confidence / 0.6) * 100) | round | int %}
-                        {% set strength = [[strength, 0] | max, 100] | min %}
-                        {% set quality = '' if confidence <= 0.4 else ('good' if confidence <= 0.5 else 'weak') %}
+                        {# distance -> bar and colour, both measured against the current
+                           tolerance. see formatting.py and attendance_today.html #}
+                        {% set quality = match_quality(confidence) %}
                         <div class="match">
-                            <div class="meter {{ quality }}"><span style="width: {{ strength }}%"></span></div>
+                            <div class="meter {{ quality }}">
+                                <span style="width: {{ match_strength(confidence) }}%"></span>
+                            </div>
                             <span class="match-value {{ quality }}">{{ '%.2f'|format(confidence) }}</span>
                         </div>
                         {% endif %}

@@ -46,7 +46,7 @@ flowchart TD
     D --> L{liveness:<br/>real face?}
     L -->|no| S[Spoof - refused]
     L -->|yes| E[face_recognition<br/>detect + encode]
-    E -->|Euclidean distance vs. every known encoding| F{closest distance<br/>&lt; 0.6?}
+    E -->|Euclidean distance vs. every known encoding| F{closest distance<br/>&lt; 0.5?}
     F -->|yes| G[check_in / check_out]
     F -->|no| H[Unknown]
     G --> I[(attendance.db)]
@@ -56,11 +56,19 @@ Recognition works by turning each face into a **128-dimensional vector** (an "en
 Two photos of the same person produce vectors that sit close together in that space; two
 different people produce vectors that sit far apart. Identifying someone is therefore just
 finding the nearest stored encoding and checking that it is near enough — the `TOLERANCE`
-constant in [`attendance/recognition.py`](attendance/recognition.py), set to `0.6`.
+constant in [`attendance/recognition.py`](attendance/recognition.py), set to `0.5`.
 
 Lower tolerance means stricter matching: fewer false matches, but more failures to
 recognise someone whose appearance has changed. Higher tolerance is more forgiving and
 correspondingly more likely to confuse two people.
+
+`0.5` is stricter than the `0.6` dlib suggests as a general default, and stricter than
+this project started with. The two failures are not symmetrical: a face that is not
+recognised is obvious to the person standing there and costs them another second and a
+half in front of the camera, while the wrong person being marked present is a false
+record that nobody reading the register would ever spot. Rows recorded under the older,
+more forgiving cutoff are still in the history, which is why distances between 0.5 and
+0.6 appear there and are shown as borderline.
 
 ---
 
@@ -357,6 +365,13 @@ deployment; anything larger wants Flask-Limiter backed by Redis so the count is 
 | `LOG_FILE` | unset | Also write a rotating log file. Unset means stderr only. |
 | `KIOSK_MODE` | `1` (on) | `1` for a shared door camera, `0` for personal check-in. See below. |
 | `ATTENDANCE_DB` | `attendance.db` | Path to the SQLite database. The test suite points this at a temporary file. |
+| `KNOWN_FACES_DIR` | `known_faces/` | Where enrolment photos are stored. |
+| `ENCODINGS_FILE` | `encodings.npz` | Where the encoding cache is written. |
+
+The last three are everything this application writes. They default to sitting next to the
+source, which is right for a checkout and wrong for a container, where the code lives in
+an image that gets rebuilt and thrown away while the data has to outlive it — see Docker
+below.
 
 The secret key is what stops someone forging a session cookie that claims
 `role=admin`, so it must never be committed. In development one is generated
@@ -366,6 +381,62 @@ automatically and cached in `.flask_secret_dev` (gitignored). In production:
 export FLASK_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32))")
 export FLASK_ENV=production
 ```
+
+---
+
+## Docker
+
+The image contains the application and nothing else. `.dockerignore` keeps the database,
+the photos and the encoding cache out of the build context on purpose — face data has no
+business inside an image that gets pushed to a registry — so a fresh container starts
+completely empty and writes everything into `/data`.
+
+**Mount something there.** Without a volume, `/data` is the container's own writable
+layer, and `docker rm` deletes the attendance record along with the container.
+
+```bash
+docker build -t attendance .
+docker volume create attendance-data
+```
+
+Create the schema and the first admin account inside a throwaway container, on the volume
+the real one will use. `--rm` deletes the container afterwards; the volume keeps what the
+scripts wrote:
+
+```bash
+docker run --rm -it -v attendance-data:/data attendance python scripts/init_db.py
+```
+
+```bash
+docker run --rm -it -v attendance-data:/data attendance python scripts/create_user.py alice --role admin
+```
+
+Then run it:
+
+```bash
+docker run -d --name attendance -p 8000:8000 -v attendance-data:/data -e FLASK_SECRET_KEY=CHANGE-ME -e TIMEZONE=Asia/Karachi attendance
+```
+
+Generate a real key with
+`python -c "import secrets; print(secrets.token_hex(32))"`. It is not optional: the image
+sets `FLASK_ENV=production`, and production refuses to start without one rather than
+falling back to a guessable default.
+
+> **It will not work over plain HTTP, by design.** `FLASK_ENV=production` also sets
+> `SESSION_COOKIE_SECURE`, so the browser is told to send the session cookie over HTTPS
+> only. Over `http://localhost:8000` the login succeeds, the cookie is dropped, and the
+> next page bounces you back to the login form as though the password were wrong. Put a
+> TLS-terminating proxy in front of it — that is the fix, not turning the flag off.
+
+Two other things worth knowing:
+
+- **The container's clock is UTC** unless you pass `TIMEZONE`. Attendance times are
+  recorded in the configured zone, so a register kept in one timezone and a container
+  running in another disagree by however many hours separate them.
+- **The camera is the browser's, not the container's.** Frames are captured by the page
+  and posted to `/recognize`, so nothing needs a webcam passed into the container. The
+  desktop scripts in `scripts/` that open a camera directly are the exception, and they
+  are not what the image is for.
 
 ---
 
@@ -413,9 +484,12 @@ anywhere that matters.
 
 ## Roadmap
 
-- [ ] Calibrate anti-spoofing and switch it on by default
-- [ ] Restructure into a package with a Flask application factory
-- [ ] Web-based enrolment, so adding a person does not need shell access
-- [ ] Pagination on the all-records view
-
-- [ ] Docker image and a production WSGI entry point
+- [x] Restructure into a package with a Flask application factory
+- [x] Web-based enrolment, so adding a person does not need shell access
+- [x] Pagination on the all-records view
+- [x] Docker image and a production WSGI entry point
+- [ ] Calibrate anti-spoofing and switch it on by default — the last thing standing
+      between this and being honestly deployable, and it needs measuring on the camera
+      it will actually run on
+- [ ] A `docker-compose.yml` with TLS termination in front, so the run command above
+      stops needing a caveat

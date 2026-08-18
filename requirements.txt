@@ -38,4 +38,7 @@ flatbuffers==25.12.19 # onnxruntime uses it for its internal serialised format
 # agrees on the rules rather than inheriting whatever the host happens to ship.
 tzdata==2026.3
 
+# the production server. Flask's own is single-threaded and its debugger executes
+# arbitrary code, so it is a development tool only -- see the note at the top of
+# wsgi.py. Linux only, which is what the container runs; on Windows use waitress.
 gunicorn==23.0.0
