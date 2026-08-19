@@ -254,40 +254,59 @@ not report whose photo it was.
 **It ships disabled**, and that is deliberate: the right threshold depends on your
 camera and your lighting, and nobody can pick it for you from the outside.
 
-Measured on one webcam, 40 samples each:
+On the laptop webcam this was developed on, 40 samples each, phone screen as the spoof:
 
 | | min | median | max |
 | --- | --- | --- | --- |
-| Real face | −3.82 | **+1.63** | +5.04 |
-| Photo / screen | −11.06 | **−6.72** | −2.39 |
+| Real face | −3.18 | **+1.21** | +6.61 |
+| Photo / screen | −6.19 | **−3.31** | +1.05 |
 
-Those separate cleanly at the default threshold of `0.0`: no spoof got through, with
-2.39 of margin, at the cost of roughly **20% of frames of a real person being
-refused**. That cost is mostly absorbed by the camera retrying every 1.5 seconds.
+**Those overlap, and the overlap is fatal.** Half the genuine frames score below the
+best spoof frame. Blocking every spoof needs a threshold of `+1.06`, which refuses
+**20 of 40 real frames**; leaving it at the default `0.0` refuses 40% of real frames
+*and* admits 8% of spoof frames. There is no setting on this camera that is worth having,
+which is why the feature stays off here.
 
-The trade is deliberately lopsided. A false reject costs a second; a false accept
-costs the entire point of the feature — and an attacker holding up a photo gets to
-retry too. So the threshold is set to protect the margin against spoofs, not to
-minimise inconvenience.
+Two things that measurement taught, and they generalise:
 
-So measure it first. Run this as yourself, then again holding up a printed photo or a
-phone screen:
+- **No middle setting helps, because both sides retry.** A threshold admitting 22% of
+  spoof frames looks like a compromise until you remember the attacker is still standing
+  there: at one check every 1.5 seconds, a photo is through in under five seconds. Only a
+  threshold at 0% admitted is worth anything, and that is the expensive end.
+- **The score moves more with lighting than with liveness.** Two runs of the same face on
+  the same camera an hour apart gave `+0.87 → +7.22` with nothing negative, and
+  `−3.18 → +6.61` with 40% negative. A threshold tuned in one lighting condition is wrong
+  in the next, which is a stronger argument against depending on it than the overlap is.
+
+So measure your own camera before trusting any of this. Run it as yourself, then again
+holding up a printed photo or a phone screen:
 
 ```bash
 python scripts/calibrate_liveness.py --label real
 ```
 
-It reports the range of scores it saw and suggests a threshold separating real from
-spoof. If the two ranges overlap, no threshold works and the model is not reliable in
-your conditions — which is worth knowing before you depend on it. Once you have a number:
+Each run saves its raw scores next to the script. Then, with no camera needed:
+
+```bash
+python scripts/calibrate_liveness.py --compare
+```
+
+That prices every threshold that behaves differently from its neighbours — real frames
+refused against spoof frames admitted — and names the lowest one that blocked every
+spoof, together with what it costs. If that cost is more than a quarter of genuine
+frames, it tells you to leave the feature off instead of handing you a number, because a
+gate that refuses a quarter of a person's frames has stopped being a gate.
+
+If it does give you a threshold:
 
 ```bash
 set LIVENESS_ENABLED=1
-set LIVENESS_THRESHOLD=0.0
+set LIVENESS_THRESHOLD=<the number it printed>
 ```
 
 If it starts refusing you, set `LIVENESS_ENABLED=0` and recalibrate rather than lowering
-the threshold until everything passes.
+the threshold until everything passes. Lowering it until you get in is exactly the motion
+that leaves the gate switched on and doing nothing.
 
 ### Kiosk mode vs. personal check-in
 
@@ -464,11 +483,14 @@ against a throwaway database in pytest's temporary directory, so the real
 These are real constraints, not TODOs that are nearly done. Read them before using this
 anywhere that matters.
 
-- **Anti-spoofing ships switched off and uncalibrated.** With `LIVENESS_ENABLED=0`, which
-  is the default, holding a printed photo up to the camera marks that person present.
-  Turning it on is a two-command job (see Anti-spoofing above) but you must calibrate it
-  first, and the honest position is that nobody has measured how it behaves on your
-  camera yet.
+- **Anti-spoofing ships switched off, and on the camera it was measured against it has to
+  stay off.** With `LIVENESS_ENABLED=0`, which is the default, holding a photo up to the
+  camera marks that person present. It has now been calibrated rather than left unmeasured,
+  and the measurement said no: the real and spoof score ranges overlap far enough that
+  blocking every spoof costs half of a genuine person's frames, and the score shifts more
+  between lighting conditions than it does between a face and a phone (see Anti-spoofing
+  above). Calibrate your own camera before assuming yours behaves the same — it may
+  separate cleanly, and `--compare` will say so.
 - **Even calibrated, it does not stop a video replay** on a good screen. It raises the
   bar a long way over "a printed photo works"; it does not eliminate the attack.
 - **Recognition runs synchronously in the request thread.** Detection is done on a
@@ -493,8 +515,11 @@ anywhere that matters.
 - [x] Web-based enrolment, so adding a person does not need shell access
 - [x] Pagination on the all-records view
 - [x] Docker image and a production WSGI entry point
-- [ ] Calibrate anti-spoofing and switch it on by default — the last thing standing
-      between this and being honestly deployable, and it needs measuring on the camera
-      it will actually run on
+- [x] Calibrate anti-spoofing — done, and the answer was no. The model cannot be switched
+      on with this camera without refusing half of a genuine person's frames; the numbers
+      and the reasoning are under Anti-spoofing above
+- [ ] Revisit anti-spoofing with fixed, even lighting, or a camera whose scores are
+      stable across the day — the overlap is a property of this setup, not necessarily
+      of the model
 - [ ] A `docker-compose.yml` with TLS termination in front, so the run command above
       stops needing a caveat

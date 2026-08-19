@@ -18,3 +18,6 @@ notes.txt
 *.egg-info/
 build/
 dist/
+
+# personal calibration measurements, not shared
+scripts/liveness-scores-*.json
