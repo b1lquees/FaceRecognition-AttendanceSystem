@@ -1,5 +1,8 @@
 known_faces/
 attendance.db
+# WAL sidecars
+attendance.db-wal
+attendance.db-shm
 encodings.npz
 venv/
 .git/

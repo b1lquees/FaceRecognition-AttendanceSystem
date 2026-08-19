@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 *.pyc
 attendance.db
+# the WAL sidecars, which appear next to any database opened since journal_mode=WAL
+attendance.db-wal
+attendance.db-shm
 encodings.npz
 encodings.npz.tmp*
 encodings.pkl

@@ -26,9 +26,42 @@ def get_db_path():
     return os.environ.get("ATTENDANCE_DB", DEFAULT_DB)
 
 
+# How long a connection waits for another one to finish writing before giving up.
+#
+# SQLite's default is zero: the moment two writes overlap, the loser raises "database is
+# locked" immediately. With a camera posting a frame every 1.5 seconds and an admin
+# clicking around at the same time, overlapping writes are ordinary rather than
+# exceptional, and the failure surfaces as a 500 on somebody's check-in. Five seconds is
+# far longer than any write here takes -- they are single-row inserts -- so in practice
+# this converts a crash into a wait nobody notices.
+BUSY_TIMEOUT_SECONDS = 5
+
+
 def connect():
     # one place that opens the database, so nothing below has to know the path at all
-    return sqlite3.connect(get_db_path())
+    connection = sqlite3.connect(get_db_path(), timeout=BUSY_TIMEOUT_SECONDS)
+
+    # Write-Ahead Logging, which is what lets a read run while a write is in progress.
+    # The default rollback journal takes an exclusive lock over the whole database for
+    # the duration of a write, so loading the register could fail simply because somebody
+    # was being marked present at that instant.
+    #
+    # It is a property of the database file, not of the connection -- setting it here is
+    # a no-op on every connection after the first, and it survives restarts. Kept here
+    # anyway so that a fresh database created by any route gets it, rather than only the
+    # ones that happen to go through create_schema().
+    #
+    # The one caveat worth knowing: WAL needs real shared memory, so it does not work on
+    # a database file sitting on a network share. That is already outside what this
+    # deployment supports -- see the SQLite note in the README's limitations.
+    connection.execute("PRAGMA journal_mode=WAL")
+
+    # With WAL, a crash can lose the most recent transactions but cannot corrupt the
+    # database. For an attendance record that trade is worth taking: the alternative is
+    # an fsync on every single check-in.
+    connection.execute("PRAGMA synchronous=NORMAL")
+
+    return connection
 
 
 def create_schema(db_path=None):
