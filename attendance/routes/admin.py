@@ -89,7 +89,7 @@ def enrol_person():
         photos = [(f.filename, f.read()) for f in uploads]
 
         try:
-            name, added, problems = enrol(request.form.get("name", ""), photos)
+            name, added, problems, advice = enrol(request.form.get("name", ""), photos)
         except EnrolmentError as error:
             return render_template(
                 "admin_enrol.html",
@@ -105,6 +105,11 @@ def enrol_person():
             # partial success is still success, but the admin needs to know which photos
             # were dropped and why, or they will assume all of them worked
             flash(problem, "warn")
+
+        # said last so it is the line left nearest the eye, and only when there is
+        # something to say -- a warning on every successful enrolment is one nobody reads
+        if advice:
+            flash(advice, "warn")
         return redirect(url_for("admin.enrol_person"))
 
     return render_template(

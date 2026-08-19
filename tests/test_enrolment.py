@@ -6,7 +6,15 @@ import pytest
 
 from attendance import enrolment, recognition
 from attendance.attendance_db import list_students
-from attendance.enrolment import EnrolmentError, encode_photo, enrol, validate_name
+from attendance.enrolment import (
+    EnrolmentError,
+    encode_photo,
+    enrol,
+    spread,
+    validate_name,
+    variety_warning,
+)
+from attendance.recognition import load_known_encodings
 
 # the storage and face_photo fixtures live in conftest.py, shared with test_errors.py
 
@@ -94,7 +102,7 @@ def test_a_real_face_produces_an_encoding(face_photo):
 # --- enrolling -----------------------------------------------------------------
 
 def test_enrolling_stores_the_photo_and_the_encoding(storage, temp_db, face_photo):
-    name, added, problems = enrol("Alice Chen", [("a.jpg", face_photo)])
+    name, added, problems, _ = enrol("Alice Chen", [("a.jpg", face_photo)])
 
     assert (name, added, problems) == ("Alice Chen", 1, [])
     assert list(recognition.load_known_encodings()) == ["Alice Chen"]
@@ -113,7 +121,7 @@ def test_the_uploaded_filename_is_not_used_on_disk(storage, temp_db, face_photo)
 
 def test_enrolling_again_adds_to_the_same_person(storage, temp_db, face_photo):
     enrol("Alice", [("a.jpg", face_photo)])
-    _, added, _ = enrol("Alice", [("b.jpg", face_photo)])
+    _, added, _, _ = enrol("Alice", [("b.jpg", face_photo)])
 
     known = recognition.load_known_encodings()
     assert added == 1
@@ -124,7 +132,7 @@ def test_enrolling_again_adds_to_the_same_person(storage, temp_db, face_photo):
 # one bad photo out of several should not throw away the good ones, but the admin has to
 # be told which one was dropped or they will assume everything worked
 def test_bad_photos_are_reported_without_losing_the_good_ones(storage, temp_db, face_photo):
-    name, added, problems = enrol(
+    name, added, problems, _ = enrol(
         "Alice",
         [("good.jpg", face_photo), ("blank.jpg", jpeg_bytes()), ("notes.txt", b"nope")],
     )
@@ -249,3 +257,61 @@ def test_posting_without_a_csrf_token_is_refused(client, login, storage, temp_db
     )
 
     assert response.status_code == 400
+
+
+# --- enrolment quality ---------------------------------------------------------------
+#
+# A set of near-identical photos uploads without complaint, reports "5 photos added", and
+# then fails to recognise the person the moment their lighting changes. Nothing in the
+# interface used to say so, and the failure arrives days later looking like a broken
+# recogniser rather than a thin enrolment.
+
+def test_spread_of_a_single_encoding_is_zero():
+    assert spread([np.zeros(128)]) == 0.0
+
+
+def test_spread_is_the_widest_gap_in_the_set():
+    a, b, c = np.zeros(128), np.zeros(128), np.zeros(128)
+    b[0] = 0.3
+    c[0] = 0.9
+
+    # the widest pair is a-c, not either of the neighbouring ones
+    assert spread([a, b, c]) == pytest.approx(0.9)
+
+
+def test_one_photo_is_called_out_as_thin():
+    advice = variety_warning("Alice", [np.zeros(128)])
+
+    assert advice is not None
+    assert "one photo" in advice
+
+
+def test_near_identical_photos_are_called_out():
+    same = np.zeros(128)
+    barely_different = np.zeros(128)
+    barely_different[0] = 0.02       # about what two frames a second apart look like
+
+    advice = variety_warning("Alice", [same, barely_different])
+
+    assert advice is not None
+    assert "nearly identical" in advice
+
+
+def test_a_varied_set_draws_no_comment():
+    a, b = np.zeros(128), np.zeros(128)
+    b[0] = 0.4                       # the same face in different light and angle
+
+    assert variety_warning("Alice", [a, b]) is None
+
+
+# it advises, it does not refuse: five near-identical photos beat none at all, and an
+# admin working from the only images they have should not be blocked by a heuristic
+def test_similar_photos_are_still_enrolled(storage, face_photo):
+    name, added, problems, advice = enrol(
+        "Alice", [("a.jpg", face_photo), ("b.jpg", face_photo)]
+    )
+
+    assert added == 2
+    assert problems == []
+    assert advice is not None and "nearly identical" in advice
+    assert "Alice" in load_known_encodings()

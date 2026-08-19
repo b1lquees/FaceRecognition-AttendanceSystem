@@ -178,12 +178,66 @@ def remove_person(name):
     return photo_count
 
 
+# How far apart two of a person's photos have to be, in face-distance, before the set is
+# teaching the recogniser more than one appearance.
+#
+# The scale is the same one identify_face() matches on, where TOLERANCE (0.5) is the line
+# between "this person" and "somebody else". Two frames grabbed a second apart sit around
+# 0.1; the same face in different light and at a different angle is usually past 0.25.
+# 0.15 is therefore well clear of "genuinely varied" and only fires on what is effectively
+# the same photograph submitted repeatedly.
+#
+# It warns rather than refuses. Five near-identical photos are worse than five varied ones
+# and still better than nothing, and an admin enrolling somebody from the only images they
+# have should not be blocked by a heuristic.
+MIN_USEFUL_SPREAD = 0.15
+
+
+def spread(encodings):
+    """The widest face-distance between any two encodings in a set."""
+    if len(encodings) < 2:
+        return 0.0
+
+    stack = np.array(encodings)
+    # every pair at once by broadcasting. The sets are at most a few dozen encodings, so
+    # the square matrix costs nothing and saves a hand-written double loop.
+    distances = np.linalg.norm(stack[:, None, :] - stack[None, :, :], axis=-1)
+    return float(distances.max())
+
+
+def variety_warning(name, encodings):
+    """A note when somebody's photos are too alike to be worth having, or None.
+
+    Enrolment quality is the single biggest lever on whether recognition works, and it is
+    invisible: a set of near-duplicates uploads without complaint, reports "5 photos
+    added", and then fails to recognise the person the moment they wear a different jumper
+    or stand nearer the window. Saying so at upload time is the only moment anybody is in a
+    position to do something about it.
+    """
+    if len(encodings) < 2:
+        return (
+            f"{name} has only one photo on file. Recognition gets much more reliable "
+            "with several, taken at different angles and in different lighting."
+        )
+
+    if spread(encodings) < MIN_USEFUL_SPREAD:
+        return (
+            f"{name}'s photos are nearly identical to each other, so they teach the "
+            "system one appearance rather than several. Add shots from different angles, "
+            "distances and lighting."
+        )
+
+    return None
+
+
 def enrol(name, photos):
     """Add or extend a person. photos is a list of (filename, bytes).
 
-    Returns (name, added_count, problems). Photos that fail are reported rather than
-    aborting the whole submission: one bad photo out of five should not throw away the
-    four good ones, and the admin needs to know which one to replace.
+    Returns (name, added_count, problems, advice). Photos that fail are reported rather
+    than aborting the whole submission: one bad photo out of five should not throw away
+    the four good ones, and the admin needs to know which one to replace. `advice` is a
+    separate channel from `problems` because nothing was rejected -- the upload worked and
+    the result is merely weak, and counting it as a rejection would misreport both.
 
     Enrolling an existing person appends to their photos rather than replacing them --
     more angles and lighting make recognition better, so this is almost always what is
@@ -226,6 +280,11 @@ def enrol(name, photos):
     known.setdefault(name, []).extend(encoding for _, _, encoding in accepted)
     save_known_encodings(known)
 
+    # judged on everything on file for this person, not just this upload: adding one more
+    # angle to an already varied set is fine, and adding a fifth copy of the same shot is
+    # not, and only the whole set can tell those apart
+    advice = variety_warning(name, known[name])
+
     # so the person appears in the admin link dropdown straight away, rather than only
     # after they have been recognised once
     register_student(name)
@@ -234,4 +293,4 @@ def enrol(name, photos):
     # what made enrolment a shell job
     reload_known_encodings()
 
-    return name, len(accepted), problems
+    return name, len(accepted), problems, advice
