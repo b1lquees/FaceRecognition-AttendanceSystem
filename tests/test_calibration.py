@@ -153,3 +153,38 @@ def test_every_measured_score_is_a_candidate_threshold(calib):
 
     assert 0.0 in points, "the default threshold should always be priced"
     assert points == sorted(points)
+
+
+# --- what gets written to disk ------------------------------------------------------
+
+# The bug this guards: report() sorted its argument in place before save() ever saw it,
+# so the files recorded a sorted list whatever save() intended. Capture order is the only
+# thing that can answer whether consecutive frames resemble each other, which is the
+# question behind judging several frames together instead of one at a time. Sorting threw
+# it away silently -- the file looked entirely reasonable.
+def test_the_saved_file_keeps_the_order_the_camera_produced(calib, tmp_path, monkeypatch):
+    monkeypatch.setattr(calib, "SCRIPTS_DIR", tmp_path)
+    jumbled = [3.0, -1.0, 2.0, -4.0]
+
+    calib.save(jumbled, "real")
+
+    assert calib.load("real", keep_order=True) == jumbled
+
+
+def test_loading_sorts_by_default_because_pricing_does_not_care_about_time(
+    calib, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(calib, "SCRIPTS_DIR", tmp_path)
+    calib.save([3.0, -1.0, 2.0, -4.0], "spoof")
+
+    assert calib.load("spoof") == [-4.0, -1.0, 2.0, 3.0]
+
+
+def test_reporting_does_not_reorder_what_it_saves(calib, tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(calib, "SCRIPTS_DIR", tmp_path)
+    jumbled = [3.0, -1.0, 2.0, -4.0]
+
+    calib.report(list(jumbled), "real")
+    capsys.readouterr()
+
+    assert calib.load("real", keep_order=True) == jumbled

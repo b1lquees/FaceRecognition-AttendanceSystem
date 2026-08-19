@@ -123,23 +123,33 @@ def main():
 # --- keeping the numbers ------------------------------------------------------------
 
 def save(scores, label):
-    """Write the raw scores out, not just the summary.
+    """Write the raw scores out, not just the summary, and in the order they arrived.
 
     A range and a median were enough while the two distributions were expected to
     separate cleanly. They stop being enough the moment they overlap: the question
     becomes what fraction of real faces sits below a candidate threshold, and no summary
     statistic answers that.
+
+    Capture order matters and this file sorted it away in its first version, which was a
+    real loss. Whether a gate can judge several frames together instead of one at a time
+    depends entirely on how much consecutive frames resemble each other -- if a bad score
+    means the next one is bad too, then averaging over five frames buys nothing, and
+    sorted scores cannot tell you that either way.
     """
     path = SCRIPTS_DIR / SCORE_FILE.format(label)
-    path.write_text(json.dumps(sorted(scores), indent=1), encoding="utf-8")
+    path.write_text(json.dumps(list(scores), indent=1), encoding="utf-8")
     return path
 
 
-def load(label):
+def load(label, keep_order=False):
+    """The saved run. Sorted by default, because pricing thresholds does not care about
+    time -- but keep_order=True for anything asking how one frame relates to the next."""
     path = SCRIPTS_DIR / SCORE_FILE.format(label)
     if not path.exists():
         sys.exit(f"No saved run for '{label}'. Run --label {label} first.")
-    return sorted(json.loads(path.read_text(encoding="utf-8")))
+
+    scores = json.loads(path.read_text(encoding="utf-8"))
+    return scores if keep_order else sorted(scores)
 
 
 def percentile(sorted_scores, fraction):
@@ -159,7 +169,12 @@ def report(scores, label):
     if not scores:
         sys.exit("No faces were scored, so there is nothing to report.")
 
-    scores.sort()
+    # the file gets the sequence, the summary below gets a sorted copy. Sorting in place
+    # here is what quietly destroyed capture order in the first version of this: the sort
+    # happened before save() was ever called, so the flag on save() was not enough.
+    captured = list(scores)
+    scores = sorted(scores)
+
     wrong = sum(1 for s in scores if (s >= 0) != (label == "real"))
 
     print(f"\n{len(scores)} samples labelled '{label}'")
@@ -173,7 +188,7 @@ def report(scores, label):
     )
     print(f"  {marks}")
 
-    path = save(scores, label)
+    path = save(captured, label)
     print(f"\n  raw scores saved to {path.name}")
 
     other = "spoof" if label == "real" else "real"
