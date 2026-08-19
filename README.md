@@ -50,8 +50,6 @@ that matters.
 - **Anti-spoofing gate.** A liveness model can refuse photographs and screens before
   recognition runs. Ships disabled; calibrate before trusting it.
 - **Audit trail.** Every security-relevant action is logged with who did it and from where.
-- **Responsive interface.** Sidebar on a laptop, drawer on a phone, tables that become
-  cards on narrow screens, and a light/dark theme following the system or your choice.
 - **Desktop mode.** `scripts/recognise_live.py` runs the same recognition in a native
   OpenCV window, for testing without a browser.
 
