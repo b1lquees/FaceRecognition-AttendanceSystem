@@ -1,5 +1,5 @@
 # Face Recognition Attendance System
-
+In progress.
 Browser-based attendance capture: a webcam identifies enrolled people and records them
 present, once per day, with arrival and departure times.
 
