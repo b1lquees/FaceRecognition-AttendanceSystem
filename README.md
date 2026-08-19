@@ -428,6 +428,11 @@ falling back to a guessable default.
 > next page bounces you back to the login form as though the password were wrong. Put a
 > TLS-terminating proxy in front of it — that is the fix, not turning the flag off.
 
+> **On Windows, run these from PowerShell or CMD rather than Git Bash.** Git Bash
+> rewrites arguments that look like Unix paths, so `... attendance ls /data` becomes
+> `ls C:/Program Files/Git/data` inside the container. Prefix the command with
+> `MSYS_NO_PATHCONV=1` if you would rather stay in Git Bash.
+
 Two other things worth knowing:
 
 - **The container's clock is UTC** unless you pass `TIMEZONE`. Attendance times are
