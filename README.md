@@ -206,9 +206,6 @@ and would make "already checked in" impossible to report. Checking out before ch
 reports *not checked in* and records nothing. A missing or unrecognised mode falls back to
 check-in, because an unwanted arrival is correctable and an unwanted departure is worse.
 
-Both times live in the same row, so the `UNIQUE(date, student_id)` index still guarantees
-exactly one record per person per day.
-
 ## Security
 
 ### Accounts and approval
