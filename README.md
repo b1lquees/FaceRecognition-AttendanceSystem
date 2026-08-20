@@ -189,14 +189,6 @@ python scripts/build_encodings.py
 | `/admin/enrol` | **admin** | Add or remove a person |
 | `/account/password` | any user | Change your own password |
 
-### The interface
-
-Navigation is a sidebar. It collapses to a button on laptops and tablets and becomes a
-drawer behind a hamburger below 960px, and both remember your choice across pages. The
-theme follows the operating system unless you use the switch at the foot of the sidebar,
-which then takes precedence. Below 700px the record tables are drawn as one card per row
-rather than a table that has to be dragged sideways, keeping match strength and duration
-on screen.
 
 ### Checking in and out
 
