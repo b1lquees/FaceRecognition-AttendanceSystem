@@ -143,13 +143,9 @@ enough — the `TOLERANCE` constant in
 [`attendance/recognition.py`](attendance/recognition.py), set to `0.5`.
 
 Lower is stricter: fewer false matches, more failures to recognise someone whose
-appearance has changed. `0.5` is tighter than the `0.6` dlib suggests by default, because
-the two failures are not symmetrical. An unrecognised face is obvious to the person
+appearance has changed. An unrecognised face is obvious to the person
 standing there and costs one 1.5-second retry; the wrong person marked present is a false
 record nobody reading the register would ever spot.
-
-Rows recorded under the older, more forgiving cutoff remain in the history, which is why
-distances between 0.5 and 0.6 appear there and are shown as borderline.
 
 ## Usage
 
