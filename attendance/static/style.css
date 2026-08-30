@@ -1242,6 +1242,36 @@ tbody tr:hover {
     font-size: 13.5px;
 }
 
+/* The camera has stopped and nothing is being recorded any more.
+
+   Deliberately the loudest thing on the page, because this is the one failure the system
+   cannot detect for itself: no frames are posted, so nothing server-side notices, and a
+   register with no rows is indistinguishable from a room with no people. Nobody finds out
+   until somebody says "I was here on Tuesday", by which point the gap cannot be
+   reconstructed. The only moment it can be caught is while somebody walks past the screen,
+   so the screen has to be impossible to walk past.
+
+   Literal colours rather than tokens: this state means the same thing in either theme, and
+   a red that softens in light mode would be defeating the point. */
+.video-alarm {
+    background: #6d1f1f;
+    color: #ffe9e6;
+    font-size: 15px;
+}
+
+.video-alarm .empty-icon {
+    color: #ffe9e6;
+}
+
+.video-error-title {
+    display: block;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+}
+
 .camera-controls {
     display: flex;
     align-items: center;

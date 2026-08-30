@@ -37,7 +37,7 @@ RUN pip install --no-cache-dir -e . --no-deps
 ENV ATTENDANCE_DB=/data/attendance.db \
     KNOWN_FACES_DIR=/data/known_faces \
     ENCODINGS_FILE=/data/encodings.npz \
-    FLASK_ENV=production
+    APP_ENV=production
 
 # Root in a container is root on the host the moment anything escapes it, and nothing
 # here needs root: the application writes to /data and reads everything else. The uid is

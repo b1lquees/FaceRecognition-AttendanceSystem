@@ -3,8 +3,10 @@ import zipfile
 import numpy as np
 import pytest
 
+from attendance import recognition
 from attendance.recognition import (
     ENCODING_LENGTH,
+    get_known_encodings,
     load_known_encodings,
     save_known_encodings,
 )
@@ -104,3 +106,81 @@ def test_saving_over_an_existing_cache_replaces_it(tmp_path):
     save_known_encodings({"Bob": [fake_encoding()]}, path)
 
     assert list(load_known_encodings(path)) == ["Bob"]
+
+
+# --- noticing that the file changed underneath us -----------------------------------
+#
+# The cache is per process and the deployment runs two workers, so enrolling somebody used
+# to update the encodings in whichever worker served that request and leave the other one
+# holding the old set until a restart. Frames arrive every 1.5s and are spread across both,
+# so a newly enrolled person was recognised in about half of them -- which reads as bad
+# recognition rather than a stale cache, and is the harder kind of fault to be told about.
+
+def test_a_change_written_by_another_process_is_picked_up(storage):
+    """What the *other* worker sees: the file changed, and nobody told it.
+
+    Deliberately no reload_known_encodings() call anywhere in this test. That is the whole
+    point -- the worker that did the enrolling is the only one that ever called it.
+    """
+    save_known_encodings({"Alice": [fake_encoding()]}, recognition.ENCODINGS_FILE)
+    assert list(get_known_encodings()) == ["Alice"]
+
+    save_known_encodings(
+        {"Alice": [fake_encoding()], "Bob": [fake_encoding()]},
+        recognition.ENCODINGS_FILE,
+    )
+
+    assert sorted(get_known_encodings()) == ["Alice", "Bob"]
+
+
+# the same mechanism pointing somewhere it matters more: the entire purpose of
+# un-enrolling somebody is to stop recognising them, and a worker that never noticed
+# carried on doing exactly that
+def test_a_removal_written_by_another_process_is_picked_up(storage):
+    save_known_encodings(
+        {"Alice": [fake_encoding()], "Bob": [fake_encoding()]},
+        recognition.ENCODINGS_FILE,
+    )
+    assert sorted(get_known_encodings()) == ["Alice", "Bob"]
+
+    save_known_encodings({"Alice": [fake_encoding()]}, recognition.ENCODINGS_FILE)
+
+    assert list(get_known_encodings()) == ["Alice"]
+
+
+# ...and it must not become a read-per-call on the way. /recognize asks for the encodings
+# once per detected face, so re-reading and re-grouping the whole cache each time would be
+# a real cost on the one endpoint that has none to spare. The stat is what keeps it cheap.
+def test_an_unchanged_file_is_read_once(storage, monkeypatch):
+    save_known_encodings({"Alice": [fake_encoding()]}, recognition.ENCODINGS_FILE)
+
+    reads = []
+    real_load = recognition.load_known_encodings
+    monkeypatch.setattr(
+        recognition,
+        "load_known_encodings",
+        lambda *args, **kwargs: (reads.append(1), real_load(*args, **kwargs))[1],
+    )
+
+    for _ in range(5):
+        get_known_encodings()
+
+    assert len(reads) == 1
+
+
+# a fresh clone and CI both have no encodings file at all, and "no file" has to be a
+# steady state rather than something that looks like a change on every single call
+def test_a_missing_file_is_not_re_read_on_every_call(storage, monkeypatch):
+    reads = []
+    real_load = recognition.load_known_encodings
+    monkeypatch.setattr(
+        recognition,
+        "load_known_encodings",
+        lambda *args, **kwargs: (reads.append(1), real_load(*args, **kwargs))[1],
+    )
+
+    for _ in range(5):
+        assert get_known_encodings() == {}
+
+    assert len(reads) == 1
+

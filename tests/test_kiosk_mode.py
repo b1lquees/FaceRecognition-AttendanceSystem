@@ -181,7 +181,23 @@ def test_unlinking(temp_db):
 
 
 def test_linking_an_unknown_account_changes_nothing(temp_db):
-    assert link_user_to_student(9999, 1) is False
+    # a real student, so this is testing the unknown *account* and nothing else. With a
+    # made-up student id it would now be refused by the check below instead, and would
+    # pass without the user_id guard ever being exercised.
+    student_id = register_student("Alice")
+
+    assert link_user_to_student(9999, student_id) is False
+
+
+# The dropdown on the admin page is a snapshot: a person removed between the page being
+# rendered and the form being submitted leaves an id behind that names nobody. Refused
+# here rather than left to the foreign key, so it reads as "could not be updated" on the
+# page instead of arriving as a 500.
+def test_linking_to_an_unknown_person_changes_nothing(temp_db):
+    create_user("alice", "a-good-password")
+
+    assert link_user_to_student(user_id_for("alice"), 9999) is False
+    assert get_linked_student_id("alice") is None
 
 
 def test_get_linked_student_id_for_an_unknown_account(temp_db):

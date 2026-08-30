@@ -104,6 +104,9 @@ def storage(tmp_path, monkeypatch):
     monkeypatch.setattr(recognition, "ENCODINGS_FILE", tmp_path / "encodings.npz")
     monkeypatch.setattr(enrolment, "KNOWN_FACES_DIR", tmp_path / "known_faces")
     monkeypatch.setattr(recognition, "_known_encodings", None)
+    # the stamp too, or a test could inherit the previous test's view of a file that has
+    # since been replaced at a different path
+    monkeypatch.setattr(recognition, "_cache_stamp", None)
     return tmp_path
 
 
@@ -134,8 +137,17 @@ def login(client):
     """
     def _login(username="viewer1", password="viewer-password", role="viewer", approved=True):
         create_user(username, password, role=role, is_approved=approved)
-        return client.post(
+        response = client.post(
             "/login",
             data={"username": username, "password": password, "_csrf_token": CSRF_TOKEN},
         )
+
+        # A successful login clears the session, token and all, so that nothing from
+        # before the privilege change survives it. A real browser picks a fresh token up
+        # from the next page it renders; a test client has to be handed one, and seeding
+        # the same known value is what lets the tests below keep posting forms.
+        with client.session_transaction() as session:
+            session["_csrf_token"] = CSRF_TOKEN
+
+        return response
     return _login

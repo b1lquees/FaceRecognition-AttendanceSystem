@@ -2,7 +2,15 @@ from pathlib import Path
 
 import pytest
 
-from attendance.config import env_flag, env_float, env_path
+from attendance.config import (
+    DevelopmentConfig,
+    ProductionConfig,
+    env_flag,
+    env_float,
+    env_int,
+    env_path,
+    get_config,
+)
 
 
 @pytest.mark.parametrize("value", ["0", "false", "FALSE", "No", "off", " off "])
@@ -64,6 +72,31 @@ def test_a_malformed_number_is_refused(monkeypatch):
         env_float("A_NUMBER", default=0.0)
 
 
+@pytest.mark.parametrize("value, expected", [("0", 0), ("1", 1), ("2", 2)])
+def test_whole_numbers_are_parsed(monkeypatch, value, expected):
+    monkeypatch.setenv("A_COUNT", value)
+
+    assert env_int("A_COUNT", default=99) == expected
+
+
+@pytest.mark.parametrize("value", ["", "  "])
+def test_an_empty_whole_number_uses_the_default(monkeypatch, value):
+    monkeypatch.setenv("A_COUNT", value)
+
+    assert env_int("A_COUNT", default=0) == 0
+
+
+# It matters more here than for a threshold. The one setting read this way is how many
+# proxy hops to trust, and quietly falling back to the default because somebody wrote
+# "one" would change who the rate limiter believes it is talking to without saying so.
+@pytest.mark.parametrize("value", ["one", "1.5", "0x1"])
+def test_a_malformed_whole_number_is_refused(monkeypatch, value):
+    monkeypatch.setenv("A_COUNT", value)
+
+    with pytest.raises(RuntimeError, match="must be a whole number"):
+        env_int("A_COUNT", default=0)
+
+
 # --- paths ------------------------------------------------------------------------
 
 # What this is for: in a container the source lives in an image that gets rebuilt and
@@ -96,3 +129,55 @@ def test_surrounding_whitespace_is_trimmed(monkeypatch):
     monkeypatch.setenv("A_PATH", "  /data/known_faces  ")
 
     assert env_path("A_PATH", default="/somewhere/else") == Path("/data/known_faces")
+
+
+# --- choosing a config ----------------------------------------------------------
+
+@pytest.fixture
+def no_env(monkeypatch):
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.delenv("FLASK_ENV", raising=False)
+
+
+@pytest.mark.parametrize("value", ["production", "PRODUCTION", " production "])
+def test_app_env_selects_production(no_env, monkeypatch, value):
+    monkeypatch.setenv("APP_ENV", value)
+
+    assert get_config() is ProductionConfig
+
+
+@pytest.mark.parametrize("value", ["", "development", "prod", "producton"])
+def test_anything_else_is_development(no_env, monkeypatch, value):
+    monkeypatch.setenv("APP_ENV", value)
+
+    assert get_config() is DevelopmentConfig
+
+
+def test_an_unset_environment_is_development(no_env):
+    assert get_config() is DevelopmentConfig
+
+
+# FLASK_ENV is the name this used to use, and dropping it outright would fail in the
+# worst direction: a deployment that still sets it would come back up on
+# DevelopmentConfig, where a missing secret key is generated instead of fatal and the
+# session cookie stops being marked HTTPS-only.
+def test_the_old_flask_env_name_still_selects_production(no_env, monkeypatch):
+    monkeypatch.setenv("FLASK_ENV", "production")
+
+    assert get_config() is ProductionConfig
+
+
+def test_the_old_name_warns_so_it_can_eventually_be_removed(no_env, monkeypatch, caplog):
+    monkeypatch.setenv("FLASK_ENV", "production")
+
+    get_config()
+
+    assert "FLASK_ENV" in caplog.text
+    assert "APP_ENV" in caplog.text
+
+
+def test_app_env_wins_over_the_old_name(no_env, monkeypatch):
+    monkeypatch.setenv("APP_ENV", "development")
+    monkeypatch.setenv("FLASK_ENV", "production")
+
+    assert get_config() is DevelopmentConfig

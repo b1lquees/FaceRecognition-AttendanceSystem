@@ -1,0 +1,53 @@
+# TLS is not optional for this application, and the reason is stronger than the cookie.
+#
+# The camera page calls getUserMedia(), and browsers only expose that in a secure context.
+# Over plain http to anything other than localhost, navigator.mediaDevices is not merely
+# restricted -- it is undefined, and the page cannot open a camera at all. So a kiosk that
+# is not the server itself needs https to *function*, quite apart from SESSION_COOKIE_SECURE
+# wanting it to be safe.
+#
+# Two situations, pick one.
+
+# ---------------------------------------------------------------------------------------
+# 1. LAN only, no public DNS name. This is the usual case for a camera by a door.
+#
+# `tls internal` makes Caddy run its own certificate authority and issue itself a
+# certificate. A public CA cannot help here: they will not issue for a private address.
+#
+# One manual step, and it is not optional. Install Caddy's root certificate on the kiosk
+# machine so the browser trusts it:
+#
+#     docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .
+#
+# then add that file to the machine's trust store. Do NOT rely on clicking through the
+# browser's warning instead -- an overridden certificate error leaves the page in a state
+# where camera access is unreliable, which is the one thing this deployment needs.
+#
+# LIST EVERY NAME AND ADDRESS THE KIOSK WILL TYPE, and understand why the list cannot be
+# left empty. A bare `:443` looks like the obvious way to say "serve on 443 whatever the
+# host is called", and it is a trap: the site block then has no subject name, `tls
+# internal` has nothing to issue a certificate FOR, and Caddy starts cleanly, logs
+# nothing, writes no certificate, and rejects every handshake with an internal error.
+# The failure is silent on the server and total on the client.
+#
+# Names not in this list are not served. Add the server's LAN address here -- an IP is
+# fine, Caddy issues internal certificates with IP SANs -- alongside the two that make
+# the stack testable on the machine that runs it:
+#
+#     kiosk.lan, 192.168.1.50, localhost, 127.0.0.1 {
+#
+localhost, 127.0.0.1 {
+	tls internal
+	reverse_proxy app:8000
+}
+
+# ---------------------------------------------------------------------------------------
+# 2. A real hostname that resolves publicly, with ports 80 and 443 reachable.
+#
+# Delete the block above, uncomment this, and put your hostname in. Caddy obtains a
+# Let's Encrypt certificate on first start and renews it forever with no cron job, no
+# certbot, and no reload hook to discover is broken in ninety days.
+#
+# attendance.example.org {
+# 	reverse_proxy app:8000
+# }

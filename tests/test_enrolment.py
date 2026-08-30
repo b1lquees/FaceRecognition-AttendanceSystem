@@ -1,4 +1,6 @@
 import io
+import threading
+import time
 
 import cv2
 import numpy as np
@@ -9,12 +11,14 @@ from attendance.attendance_db import list_students
 from attendance.enrolment import (
     EnrolmentError,
     encode_photo,
+    encoding_write_lock,
     enrol,
+    remove_person,
     spread,
     validate_name,
     variety_warning,
 )
-from attendance.recognition import load_known_encodings
+from attendance.recognition import load_known_encodings, save_known_encodings
 
 # the storage and face_photo fixtures live in conftest.py, shared with test_errors.py
 
@@ -315,3 +319,132 @@ def test_similar_photos_are_still_enrolled(storage, face_photo):
     assert problems == []
     assert advice is not None and "nearly identical" in advice
     assert "Alice" in load_known_encodings()
+
+
+# --- two writers at once --------------------------------------------------------------
+#
+# Both writers load the whole cache, change one person and write it back. Three steps, and
+# three steps interleave: the deployment runs two gunicorn workers, so "two admins at once"
+# is not the only way in -- one admin and a background reload is enough. os.replace() makes
+# each write atomic, which is a different property from this one. Both writes below finish
+# cleanly and produce a valid file; without the lock one of them is simply built from
+# contents read before the other landed, and a person disappears.
+
+def test_a_removal_and_an_enrolment_at_once_do_not_undo_each_other(
+    temp_db, storage, monkeypatch
+):
+    """remove_person() itself, raced against the other worker adding somebody.
+
+    Whichever order they land in, the answer is the same: Alice was removed and Bob was
+    added, so Bob is on file and Alice is not. Without the lock both read a cache holding
+    only Alice, and the loser's save is built from it -- either Bob never existed or Alice
+    came back from the dead, depending on which finished last.
+    """
+    save_known_encodings({"Alice": [np.zeros(128)]}, recognition.ENCODINGS_FILE)
+
+    # widen the read-modify-write window so the two genuinely overlap, rather than the
+    # test passing because they happened to miss each other on a fast machine
+    real_save = enrolment.save_known_encodings
+
+    def slow_save(known, path=None):
+        time.sleep(0.05)
+        return real_save(known, path)
+
+    monkeypatch.setattr(enrolment, "save_known_encodings", slow_save)
+
+    # a barrier rather than a sleep: both threads are released at the same instant
+    ready = threading.Barrier(2)
+
+    def remover():
+        ready.wait()
+        remove_person("Alice")
+
+    def enroller():
+        ready.wait()
+        with encoding_write_lock():
+            known = enrolment.load_known_encodings()
+            known.setdefault("Bob", []).append(np.zeros(128))
+            enrolment.save_known_encodings(known)
+
+    threads = [threading.Thread(target=remover), threading.Thread(target=enroller)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert sorted(load_known_encodings(recognition.ENCODINGS_FILE)) == ["Bob"]
+
+
+# the lock has to actually exclude, not merely exist. If BEGIN IMMEDIATE were ever
+# softened to a plain BEGIN it would take the write lock lazily, on first write -- and
+# since nothing inside this block writes to the database, that would be never.
+def test_the_lock_excludes_a_second_holder(temp_db, storage):
+    held = threading.Event()
+    second_got_in = threading.Event()
+
+    observed = []
+
+    def first():
+        with encoding_write_lock():
+            held.set()
+            time.sleep(0.3)
+            # Recorded rather than asserted here. An AssertionError raised inside a thread
+            # does not fail the test -- it prints to stderr and the thread ends quietly --
+            # so the check has to be made on the main thread once both have finished.
+            observed.append(second_got_in.is_set())
+
+    def second():
+        held.wait()
+        with encoding_write_lock():
+            second_got_in.set()
+
+    threads = [threading.Thread(target=first), threading.Thread(target=second)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert observed == [False]     # the second holder was still outside, waiting
+    assert second_got_in.is_set()  # and did get in afterwards, so this was a wait not a hang
+
+
+# enrol() itself, not just the lock primitive it calls. A real face photo is not needed to
+# exercise the part that was broken -- the read-modify-write around the encoder, which had
+# no exclusion at all -- and CI has no face photos, so the encoder is stubbed out.
+def test_two_enrolments_at_once_do_not_lose_one(temp_db, storage, monkeypatch):
+    save_known_encodings({}, recognition.ENCODINGS_FILE)
+
+    monkeypatch.setattr(
+        enrolment,
+        "encode_photo",
+        lambda data, filename="": np.random.rand(recognition.ENCODING_LENGTH),
+    )
+
+    # widen the window so the two genuinely overlap rather than missing each other
+    real_save = enrolment.save_known_encodings
+
+    def slow_save(known, path=None):
+        time.sleep(0.05)
+        return real_save(known, path)
+
+    monkeypatch.setattr(enrolment, "save_known_encodings", slow_save)
+
+    failures = []
+    ready = threading.Barrier(2)
+
+    def add(name):
+        ready.wait()
+        try:
+            enrol(name, [(f"{name}.jpg", b"pretend-jpeg-bytes")])
+        except Exception as error:            # recorded, not raised: an exception in a
+            failures.append(f"{name}: {error!r}")   # thread does not fail the test
+
+    threads = [threading.Thread(target=add, args=(name,)) for name in ("Alice", "Bob")]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+    assert failures == []
+    assert sorted(load_known_encodings(recognition.ENCODINGS_FILE)) == ["Alice", "Bob"]
+

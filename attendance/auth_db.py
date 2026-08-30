@@ -179,6 +179,20 @@ def link_user_to_student(user_id, student_id):
     exact impersonation this is meant to prevent.
     """
     conn = connect()
+
+    # Checked here rather than left to the foreign key. The constraint is enforced now
+    # (see the pragma in db.py) so an unknown id would be refused either way -- but it
+    # would arrive as an IntegrityError out of the route, which means a 500 for what is
+    # really just a stale dropdown. Asking first turns it into the same "could not be
+    # updated" answer as every other way this can fail.
+    if student_id is not None:
+        known = conn.execute(
+            "SELECT 1 FROM students WHERE id = ?", (student_id,)
+        ).fetchone()
+        if known is None:
+            conn.close()
+            return False
+
     cursor = conn.execute(
         "UPDATE users SET student_id = ? WHERE id = ? AND is_approved = 1",
         (student_id, user_id),

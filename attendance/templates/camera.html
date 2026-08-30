@@ -1,5 +1,6 @@
-{% extends "base.html" %}
-
+<!--inherits the common layout from base.html-->
+{% extends "base.html" %} 
+<!--browser tab will say camera-->
 {% block title %}Camera{% endblock %}
 {% set active_page = 'camera' %}
 
@@ -26,6 +27,7 @@
 
             <div id="camera-error" class="video-error" hidden>
                 <div class="empty-icon">&#9888;</div>
+                <strong id="camera-error-title" class="video-error-title"></strong>
                 <p id="camera-error-text"></p>
             </div>
         </div>
@@ -80,7 +82,7 @@
 {% endblock %}
 
 {% block head_extra %}
-<script>
+<script nonce="{{ csp_nonce() }}">
     // the CSRF token is required on every POST. /recognize sends JSON rather than a
     // form, so it travels as a header instead of a hidden field (see attendance/security.py)
     const CSRF_TOKEN = "{{ csrf_token() }}";
@@ -90,7 +92,8 @@
 {% endblock %}
 
 {% block scripts %}
-<script>
+<script nonce="{{ csp_nonce() }}">
+    // document.getElementById() searches the HTML for an element with that ID and gives reference to that element
     const video = document.getElementById("video");
     const canvas = document.getElementById("canvas");
     const toggle = document.getElementById("toggle");
@@ -102,14 +105,22 @@
     const markedCount = document.getElementById("marked-count");
     const cameraError = document.getElementById("camera-error");
     const cameraErrorText = document.getElementById("camera-error-text");
+    const cameraErrorTitle = document.getElementById("camera-error-title");
 
-    function currentMode() {
-        return document.querySelector('input[name="mode"]:checked').value;
+    // for the radio button 
+    // both share name=mode only one of them can be checked at a time mutually exclusive group
+    // :checked css class selector used in stylesheets to style checked inputs works inside querySelector to find checked one 
+    //.value once it finds that one checked <input> element it grabs value attribute either in or out 
+    function currentMode() { // returns the string in or out depending on which radio button is selected
+        return document.querySelector( // document represents the current webpage find the 1st html element on the webpage that matches the selected mode and give that value back
+            'input[name="mode"]:checked'
+        ).value;
     }
-
+// let is when you set a variable which can change later 
     let stream = null;      // the live MediaStream, or null when the camera is off
     let timer = null;       // the setInterval handle, so it can be cleared on stop
     let inFlight = false;   // guards against overlapping requests (see sendFrame)
+    let pausedUntil = 0;    // epoch ms; while now is before this, no frame is posted
     let frames = 0;
     const seen = new Set();   // "name|label" entries already listed, to avoid repeats
     const people = new Set(); // distinct names, which is what the counter shows
@@ -134,9 +145,9 @@
             return;
         }
 
-        cameraError.hidden = true;
+        cameraError.hidden = true; // hide the error message bec everything worked 
         video.srcObject = stream;   // srcObject is for live streams; src is for files/urls
-        toggle.textContent = "Stop camera";
+        toggle.textContent = "Stop camera"; // changes the text of the button b4 starting it was start now stop
         setStatus("looking", "Looking for a face…");
         timer = setInterval(sendFrame, INTERVAL_MS);
     }
@@ -144,6 +155,9 @@
     function stop() {
         clearInterval(timer);
         timer = null;
+        // so that starting the camera again is a clean start rather than resuming into
+        // the tail of a pause the person has been sitting through
+        pausedUntil = 0;
         // releasing every track is what actually turns the camera off, including the
         // hardware indicator light. dropping the reference alone does not.
         if (stream) {
@@ -155,6 +169,27 @@
         setStatus("idle", "Camera off");
     }
 
+    function showOverlay({ title, text, alarm }) {
+        cameraErrorTitle.textContent = title;
+        cameraErrorText.textContent = text;
+        // the alarm class is what makes it red and shouting; a camera that never started
+        // is a different thing from a camera that stopped recording halfway through a day
+        cameraError.classList.toggle("video-alarm", Boolean(alarm));
+        cameraError.hidden = false;
+    }
+
+    // Stopped, and nothing is being recorded from here on.
+    //
+    // This is the failure nothing else can catch. No frames are posted, so the server sees
+    // silence and silence is indistinguishable from an empty room -- there is no alert, no
+    // log line, and no gap in the data to notice later. A status pill was not enough: the
+    // screen has to be unmissable to somebody merely walking past it.
+    function showNotRecording(text) {
+        stop();
+        showOverlay({ title: "Not recording", text, alarm: true });
+        setStatus("error", "NOT RECORDING");
+    }
+
     function showCameraError(error) {
         // the raw DOMException name is not something to show a person, so map the ones
         // that actually happen onto something actionable
@@ -163,9 +198,13 @@
             NotFoundError: "No camera was found on this device.",
             NotReadableError: "The camera is already in use by another application.",
         };
-        cameraErrorText.textContent = messages[error.name]
-            || ("Could not start the camera: " + error.message);
-        cameraError.hidden = false;
+        showOverlay({
+            title: "Camera unavailable",
+            text: messages[error.name] || ("Could not start the camera: " + error.message),
+            // not the alarm: nothing was being recorded to begin with, and the person who
+            // just pressed Start is standing right there reading it
+            alarm: false,
+        });
         setStatus("error", "Camera unavailable");
         console.error("getUserMedia failed:", error);
     }
@@ -174,6 +213,22 @@
         // recognition takes longer than the interval on a slow machine. without this
         // guard the requests would pile up faster than the server could answer them.
         if (inFlight || !stream) return;
+
+        // the server asked us to wait, so wait. carrying on posting through a refusal
+        // spends the allowance we are sitting here waiting to get back, and it does it
+        // at exactly the moment the server is least able to afford the traffic.
+        if (pausedUntil) {
+            const remaining = Math.ceil((pausedUntil - Date.now()) / 1000);
+            if (remaining > 0) {
+                // counted down out loud, because a status that just says "too many" with
+                // no end in sight is indistinguishable from one that is broken
+                setStatus("error", `Too many frames — resuming in ${remaining}s`);
+                return;
+            }
+            pausedUntil = 0;
+            setStatus("looking", "Looking for a face…");
+        }
+
         inFlight = true;
 
         try {
@@ -181,10 +236,10 @@
             context.drawImage(video, 0, 0, canvas.width, canvas.height);
             // toDataURL gives "data:image/jpeg;base64,...." -- a text form of the image,
             // because JSON cannot carry raw binary
-            const imageData = canvas.toDataURL("image/jpeg", 0.8);
-
+            const imageData = canvas.toDataURL("image/jpeg", 0.8); // converts the canvas image into a data URL 
+            // fetch is making http request 
             const response = await fetch(RECOGNIZE_URL, {
-                method: "POST",
+                method: "POST", // sending an image and recognition information to the server 
                 headers: {
                     "Content-Type": "application/json",
                     "X-CSRF-Token": CSRF_TOKEN,
@@ -193,9 +248,25 @@
             });
 
             if (response.status === 401 || response.status === 403 || response.redirected) {
-                // the session expired while the page sat open
-                stop();
-                setStatus("error", "Session expired — please sign in again");
+                // Two different things arrive here and both stop the loop for good: the
+                // session expired while the page sat open, or the server refused this
+                // location outright. Only the second knows why, and it says so in a JSON
+                // body -- a redirect to the login page returns HTML, so the parse is
+                // attempted only on a real 403 and is allowed to fail.
+                let refusal = null;
+                if (response.status === 403) {
+                    try {
+                        refusal = await response.json();
+                    } catch (error) {
+                        refusal = null;  // not JSON, so it is not one of ours
+                    }
+                }
+
+                showNotRecording(
+                    (refusal && refusal.offsite && refusal.error)
+                    || "This station has been signed out, so attendance is no longer being "
+                       + "recorded. Sign in again to resume."
+                );
                 return;
             }
 
@@ -204,8 +275,20 @@
             if (data.csrf) {
                 // the security token lives in the session, so if it stopped matching the
                 // session is almost certainly gone. polling on would just fail forever.
-                stop();
-                setStatus("error", "Session expired — please reload and sign in again");
+                showNotRecording(
+                    "This station's session has ended, so attendance is no longer being "
+                    + "recorded. Reload the page and sign in again to resume."
+                );
+                return;
+            }
+
+            if (response.status === 429) {
+                // Retry-After is the server saying how long its window has left to run.
+                // The camera stays on and the page stays as it is -- this is a pause, not
+                // an error to recover from, and it ends by itself.
+                const wait = Number(response.headers.get("Retry-After"));
+                pausedUntil = Date.now() + (wait > 0 ? wait : 60) * 1000;
+                setStatus("error", data.error || "Too many frames — pausing for a moment");
                 return;
             }
 

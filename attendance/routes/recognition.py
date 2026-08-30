@@ -13,8 +13,10 @@ from ..audit import audit
 from ..auth_db import get_linked_student_id
 from ..decorators import login_required
 from ..liveness import LivenessUnavailable, is_live
+from ..ratelimit import client_key, rate_limit
 from ..recognition import DETECTION_SCALE, get_known_encodings, identify_face
 
+# used to organiseflask routes into separate modules
 recognition_bp = Blueprint("recognition", __name__)
 
 # Per frame, not per person: each face costs an encoding and a liveness inference, and a
@@ -32,6 +34,37 @@ STATUS_PRIORITY = [
     "not_checked_in", "mismatch", "not_linked",
     "unknown",
 ]
+
+
+def checkin_client_key():
+    """What counts as one client of /recognize, which depends on the mode.
+
+    Kiosk: the address, like everywhere else. One camera by a door is one machine at one
+    address, so the two agree and there is nothing to fix.
+
+    Personal: the signed-in account. Here the address is actively the wrong unit. Twenty
+    people checking themselves in from twenty browsers leave the building through one NAT
+    gateway, so the limiter sees a single client posting twenty cameras' worth of frames
+    and starts refusing everybody at 60 a minute -- a limit sized for exactly one camera,
+    enforced against a whole office. And "same address" is wider than "same machine",
+    which is what makes this easy to hit by accident.
+
+    Prefixed, because the value goes straight into the store key next to real addresses
+    and a username that looked like one would share a counter with it.
+
+    Be clear about what this does NOT do: it stops the LIMITER being the thing that
+    breaks, and it creates no capacity. Recognition is ~1.2s of CPU in the request thread,
+    so the server answers roughly 100 frames a minute in total while one browser posts 40.
+    Personal mode past a couple of concurrent users runs out of machine long before it
+    runs out of allowance, and the answer to that is workers, hardware, or a longer
+    interval in camera.html -- never a bigger number here.
+    """
+    if not current_app.config["KIOSK_MODE"] and "username" in session:
+        return f"user:{session['username']}"
+    # falls back to the address rather than assuming a username is there: login_required
+    # runs first so in practice one always is, but a limiter that raises is a limiter that
+    # turns a refusal into a 500
+    return client_key()
 
 
 def outcome(status, name=None, distance=None, marked=False):
@@ -90,7 +123,40 @@ def camera():
 @recognition_bp.route("/recognize", methods=["POST"])
 @login_required  # this is the only route that writes to the database. without the guard,
 # anyone who could reach the server could mark attendance without ever logging in.
+#
+# And a limit, because this is by far the most expensive thing the server does: detection
+# plus encoding is around 1.2 seconds of CPU per frame, and it runs in the request thread.
+# Two gunicorn workers therefore answer well under two of these a second, so a single
+# signed-in account calling it in a loop can occupy the whole server and leave the camera
+# by the door unable to check anybody in. Every other limit here guards a password or an
+# inbox; this one guards the CPU.
+#
+# 60 a minute against a camera that posts one frame every 1.5 seconds -- 40 a minute --
+# leaves room for a burst of retries after a hiccup while capping the damage one client
+# can do. Counted per camera rather than per address -- see checkin_client_key(), which is
+# the address in kiosk mode and the signed-in account in personal mode. Same caveat as the
+# rest of the module either way: the count lives in one worker's memory, so it is a brake
+# rather than a wall.
+#
+# Which means this number assumes ONE camera per counter. In kiosk mode that is still an
+# assumption about the address, and two tabs or two kiosk machines behind the same NAT
+# gateway come to 80 a minute between them and both start getting 429s. That is correct as
+# far as it goes -- two cameras really are two cameras. It was the wrong unit in personal
+# mode, where twenty people on one office gateway are twenty separate check-ins and not one
+# client doing twenty times the work, which is why that mode keys on the account instead.
+#
+# Do not simply raise it in either mode. Two workers at ~1.2s a frame is about 100 frames a
+# minute for the whole server, and one camera is already 40 of them, so the machine supports
+# roughly two cameras at full rate and no more. A limit of 120 would let a single client ask
+# for more than the server can deliver, at which point it has stopped guarding the CPU and
+# is only decorating the code. A second camera -- or a twentieth account -- is a capacity
+# question: more workers, better hardware, or a longer interval in camera.html, never a
+# bigger number here.
+@rate_limit(limit=60, per_seconds=60, as_json=True, key=checkin_client_key)
 def recognize():
+    # Before the body is looked at, let alone decoded. A refusal here should cost nothing,
+    # and this is by a wide margin the cheapest check in the function.
+    #
     # silent=True makes get_json() return None on malformed JSON instead of raising,
     # so a bad request becomes a clean 400 rather than a 500 with a stack trace
     data = request.get_json(silent=True)
@@ -140,12 +206,6 @@ def recognize():
         tuple(int(edge * scale_back) for edge in box) for box in small_locations
     ]
 
-    # Liveness runs BEFORE recognition, deliberately. A photograph of an enrolled person
-    # produces the same encoding the real person does, so identifying first and checking
-    # afterwards would mean the system knew whose photo it was looking at -- and the only
-    # thing standing between that and a check-in would be the order of two if statements.
-    # It takes rgb_frame: this model was trained on RGB, unlike the rest of the OpenCV
-    # path here, and passing BGR swaps two channels and gives quietly wrong answers.
     # A frame can hold more than one face, and until now only the first was looked at --
     # so at a shared camera the second person in shot was silently ignored, while the
     # desktop viewer handled everyone. The two paths now agree.
@@ -153,11 +213,16 @@ def recognize():
     # Capped because the work is per face: encoding and a liveness check each cost real
     # time, and a frame containing a crowd photo would otherwise turn one request into
     # fifty inferences, every 1.5 seconds.
+    #
+    # What actually happens to each face is handle_one_face(), including the liveness gate
+    # and why it has to run before recognition rather than after.
     outcomes = []
     for location in face_locations[:MAX_FACES_PER_FRAME]:
-        outcome = handle_one_face(rgb_frame, location, data.get("mode"))
-        if outcome is not None:
-            outcomes.append(outcome)
+        # deliberately not named `outcome`: that is the function these come back from, and
+        # binding it here would shadow it for the rest of this scope
+        face_outcome = handle_one_face(rgb_frame, location, data.get("mode"))
+        if face_outcome is not None:
+            outcomes.append(face_outcome)
 
     if not outcomes:
         return result("no_face")

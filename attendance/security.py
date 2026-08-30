@@ -14,7 +14,7 @@ Flask-WTF does this and more, but it is a dependency and this is about twenty li
 
 import secrets
 
-from flask import abort, jsonify, request, session
+from flask import abort, g, jsonify, request, session
 
 TOKEN_KEY = "_csrf_token"
 
@@ -28,6 +28,25 @@ def csrf_token():
     if TOKEN_KEY not in session:
         session[TOKEN_KEY] = secrets.token_urlsafe(32)
     return session[TOKEN_KEY]
+
+
+def csp_nonce():
+    """A fresh random value for this request, naming the scripts this page vouches for.
+
+    Registered as a Jinja global in create_app(), so a template tags its own inline script:
+        <script nonce="{{ csp_nonce() }}"> ... </script>
+
+    Held on `g` rather than in the session, and that is the whole point: it has to be
+    different on every response. A nonce that repeats is worth nothing, because anyone who
+    has seen one page's HTML then knows the value that authorises script on the next one --
+    which is exactly the capability the policy exists to withhold.
+
+    Same generator as the CSRF token, for the same reason: this value has to be
+    unguessable, and secrets is the module that promises that.
+    """
+    if not hasattr(g, "csp_nonce"):
+        g.csp_nonce = secrets.token_urlsafe(16)
+    return g.csp_nonce
 
 
 def verify_csrf():

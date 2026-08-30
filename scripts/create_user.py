@@ -1,8 +1,9 @@
 """Create a login account for the attendance system.
 
 Usage:
-    python create_user.py alice
+    python create_user.py alice                 # a viewer, which is the default
     python create_user.py alice --role admin
+    python create_user.py station               # the account the camera signs in as
 
 The password is prompted for rather than passed as an argument, so it never ends up
 in this file, in your shell history, or in the process list.
@@ -24,7 +25,16 @@ def main():
         "--role",
         choices=["admin", "viewer"],
         default="viewer",
-        help="admin can export CSV; viewer can only read attendance (default: viewer)",
+        # Spelled out because this is where somebody decides what the camera station gets,
+        # and "can export CSV" undersold it badly. An admin can also enrol a face -- which
+        # means enrolling themselves under another person's name -- remove people, approve
+        # accounts, and link accounts to people. A viewer reads attendance and works the
+        # camera, which is everything the station needs and nothing it does not.
+        help=(
+            "admin: enrol and remove people, approve accounts, export the archive. "
+            "viewer: read attendance and use the camera (default, and what a camera "
+            "station should be)"
+        ),
     )
     args = parser.parse_args()
 

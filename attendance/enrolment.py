@@ -11,6 +11,7 @@ to get a file into known_faces/ was to already be on the machine.
 import re
 import shutil
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
 
 import cv2
@@ -19,6 +20,7 @@ import numpy as np
 
 from .attendance_db import register_student
 from .config import env_path
+from .db import connect
 from .recognition import (
     PROJECT_ROOT,
     load_known_encodings,
@@ -63,6 +65,45 @@ MAX_REQUEST_BYTES = MAX_PHOTOS * MAX_PHOTO_BYTES + 1024 * 1024
 
 class EnrolmentError(ValueError):
     """Something about the submission was wrong, in a way worth telling the user."""
+
+
+@contextmanager
+def encoding_write_lock():
+    """Hold off other writers while the encoding cache is read, changed and written back.
+
+    Both writers below do those as three separate steps, and three steps are interruptible.
+    Two admins acting at the same moment -- or, more likely, one admin and the other
+    gunicorn worker -- can interleave them so the second save is built on a copy that was
+    read before the first one landed, and the first person's enrolment silently vanishes.
+
+    os.replace() in save_known_encodings() does not help with this, and it is worth being
+    clear about why: it makes each individual *write* atomic, so no reader ever sees half a
+    file. Here both writes completed and both files were perfectly valid. One of them was
+    simply built from stale contents. Atomicity is not the same property as isolation.
+
+    The lock is a SQLite transaction rather than a lock file. The database is already open
+    in every worker, already has a busy timeout tuned for exactly this kind of contention,
+    and -- the part that decides it -- its locks are released by the operating system when
+    a process dies, where a lock file left behind by a crash sits there blocking enrolment
+    until somebody who knows it exists goes and deletes it. BEGIN IMMEDIATE takes the write
+    lock up front instead of on first write, which is what makes a transaction usable as a
+    plain mutex.
+
+    Nothing inside this block may touch the database. It would open a second connection,
+    which would then wait for this one to finish, which is a deadlock that announces itself
+    five seconds later as "database is locked". That is why register_student() is called
+    outside it.
+    """
+    conn = connect()
+    conn.isolation_level = None  # so BEGIN and COMMIT here mean exactly what they say
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        yield
+        conn.execute("COMMIT")
+    finally:
+        # close() rolls back anything uncommitted, so an exception inside the block
+        # releases the lock rather than holding it until the worker is restarted
+        conn.close()
 
 
 def validate_name(name):
@@ -158,18 +199,25 @@ def remove_person(name):
     """
     name = validate_name(name)
 
-    known = load_known_encodings()
-    if name not in known:
-        raise EnrolmentError(f"{name!r} is not enrolled.")
-
     directory = person_directory(name)
     photo_count = len(list(directory.iterdir())) if directory.is_dir() else 0
 
-    # encodings first. if this succeeds and the rmtree then fails, the result is orphaned
-    # photos on disk, which is untidy. The other order risks deleted photos with live
-    # encodings, which means a person who cannot be re-enrolled but is still recognised.
-    del known[name]
-    save_known_encodings(known)
+    # The check and the delete are one step, not two. Between them, an enrolment running
+    # in the other worker can add photos to this person -- and without the lock those
+    # would be written into a copy of the cache read before this removal, so the removal
+    # would be undone by a save that had no idea it was happening.
+    #
+    # Encodings first: if this succeeds and the rmtree below then fails, the result is
+    # orphaned photos on disk, which is untidy. The other order risks deleted photos with
+    # live encodings, which means a person who cannot be re-enrolled but is still
+    # recognised -- which is the failure that matters, because un-enrolling somebody is
+    # supposed to be the thing that stops them being recognised.
+    with encoding_write_lock():
+        known = load_known_encodings()
+        if name not in known:
+            raise EnrolmentError(f"{name!r} is not enrolled.")
+        del known[name]
+        save_known_encodings(known)
 
     if directory.is_dir():
         shutil.rmtree(directory)
@@ -276,17 +324,24 @@ def enrol(name, photos):
     for suffix, data, _ in accepted:
         (person_dir / f"{uuid.uuid4().hex}{suffix}").write_bytes(data)
 
-    known = load_known_encodings()
-    known.setdefault(name, []).extend(encoding for _, _, encoding in accepted)
-    save_known_encodings(known)
+    # read, change, write -- one writer at a time, or two overlapping enrolments lose
+    # one of themselves. Only the three steps that touch the cache are inside: encoding
+    # the photos above is the slow part and holding the lock through it would make every
+    # other writer wait out somebody else's upload.
+    with encoding_write_lock():
+        known = load_known_encodings()
+        known.setdefault(name, []).extend(encoding for _, _, encoding in accepted)
+        save_known_encodings(known)
+        on_file = known[name]
 
     # judged on everything on file for this person, not just this upload: adding one more
     # angle to an already varied set is fine, and adding a fifth copy of the same shot is
     # not, and only the whole set can tell those apart
-    advice = variety_warning(name, known[name])
+    advice = variety_warning(name, on_file)
 
     # so the person appears in the admin link dropdown straight away, rather than only
-    # after they have been recognised once
+    # after they have been recognised once. Outside the lock deliberately -- this writes to
+    # the database, and doing it inside would be waiting on a lock this thread already has.
     register_student(name)
 
     # and so the running server sees them without a restart, which was the other half of

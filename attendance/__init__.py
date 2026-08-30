@@ -1,16 +1,6 @@
 """The attendance system, built as a Flask application factory.
-
-app.py used to create the application at import time: the Flask object, the secret key,
-and the face encodings were all set up the moment anything imported the module. That had
-three consequences worth naming, because they are the reason this file exists:
-
-  - there was exactly one configuration, decided by the environment at import time
-  - the tests had to set environment variables *before* importing app, which is fragile
-    and easy to get wrong
-  - importing the app for any reason read files from disk as a side effect
-
-create_app() defers all of that until someone actually asks for an application, so the
-test suite can build a throwaway one with its own config and its own database.
+create_app() allows you to create diff application instances with different configurations
+such as production and separate test application with its own config and its own database.
 """
 
 from flask import Flask, request
@@ -18,52 +8,95 @@ from flask import Flask, request
 from .config import get_config
 
 
-def create_app(config=None):
+def create_app(config=None): #caller can optionally provide configuration
     """Build a configured Flask application.
 
     config: a class from attendance.config. Defaults to whatever get_config() picks
-    from the environment, which is ProductionConfig when FLASK_ENV=production.
+    from the environment, which is ProductionConfig when APP_ENV=production.
+    if a configuration was supplied, that configuration is used; otherwise, get_config() determines
+    the appropriate configuration based on the environment. This is useful because
+    application might use one configuration during development, another during production,
+    and another specifically for testing
     """
     config = config or get_config()
 
-    # Flask(__name__) with __name__ == "attendance" means Flask looks for templates and
-    # static files inside this package, which is where they now live
+    # Flask(__name__) with __name__ == "attendance" means Flask looks for templates and static files
+    # inside this package, which is where they live
     app = Flask(__name__)
+    # loads thr settings form the selected configuration into flask's configuration object. settings
+    # sucvh debug db paths limits become available thru app.config
     app.config.from_object(config)
 
-    # secret_key() is a method rather than a class attribute so that reading the
-    # environment (and, in development, writing the cached key file) happens here when
-    # an app is built, not when attendance.config is first imported
+    # secret_key() is a method rather than a class attribute so that reading the environment and in
+    # development, writing the cached key file happens here when an app is built, not when
+    # attendance.config is first imported
     app.config["SECRET_KEY"] = config.secret_key()
 
-    # before anything else that might want to log, and before the first request:
-    # Flask only attaches its own handler in debug mode, so a production server
-    # would otherwise be silent -- including the 500 handler's tracebacks.
-    from .audit import configure_logging
+    # Behind a proxy every request appears to come from the proxy, so the rate limiter sees one
+    # client no matter how many there are and the audit trail records one address for everybody.
+    # ProxyFix rewrites remote_addr from X-Forwarded-For, trusting exactly as many hops as
+    # TRUSTED_PROXY_HOPS says are really there -- and none by default, because believing that header
+    # without a proxy in front lets any client claim any address.
+    #
+    # x_proto as well as x_for: without it the application believes every request arrived over plain
+    # http, which is wrong for url_for(..., _external=True) and for anything that reads
+    # request.is_secure.
+    #
+    # This wraps the WSGI callable rather than registering a before_request hook, so it runs before
+    # Flask has looked at the request at all. Everything downstream that reads remote_addr --
+    # ratelimit.client_key(), audit.where() -- depends on that ordering.
+    hops = app.config["TRUSTED_PROXY_HOPS"]
+    if hops:
+        from werkzeug.middleware.proxy_fix import ProxyFix
 
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops)
+
+  # logging configured important bec bec application needs to record events such as authentication
+  # attempts administrative actions errors. and its performed early in the application creation
+  # process so later parts of the application can safely produce logs dont want it fail silently
+  # whne smth goes wrong
+    from .audit import configure_logging
     configure_logging(app)
 
-    # every POST is CSRF-checked by default. doing it as a before_request hook rather
-    # than a decorator means a newly added form is protected automatically instead of
-    # being protected only if its author remembered to opt in.
-    # Raise the upload limit for enrolment BEFORE the CSRF hook runs, and it has to be
-    # in that order. verify_csrf reads request.form, and reading the form is what pulls
-    # the body in and triggers the size check -- so a limit set inside the view arrives
-    # too late and a large upload 413s before any view executes. before_request handlers
-    # run in registration order, which is what makes this work.
-    from .enrolment import MAX_REQUEST_BYTES
-    from .security import csrf_token, verify_csrf
+    # every POST is CSRF-checked by default. doing it as a before_request hook rather than a
+    # decorator means a newly added form is protected automatically instead of being protected only
+    # if its author remembered to opt in. Raise the upload limit for enrolment BEFORE the CSRF hook
+    # runs, and it has to be in that order. verify_csrf reads request.form, and reading the form is
+    # what pulls the body in and triggers the size check -- so a limit set inside the view arrives
+    # too late and a large upload 413s before any view executes. before_request handlers run in
+    # registration order, which is what makes this work.
 
-    @app.before_request
+    # MAX_REQUEST_BYTES maximum amount of data your flask application will allow in a single http
+    # request CSRF token is a unique secret value generated by the server and given to the user's
+    # browser when the user performs an action the browser must send this token back proves that the
+    # request is real and blocks malicious 3rd party sites from forging actions
+    from .enrolment import MAX_REQUEST_BYTES
+    from .security import csp_nonce, csrf_token, verify_csrf
+
+    @app.before_request # runs b4 actual flask route executes
     def allow_larger_enrolment_uploads():
+        # checks if the requested endpoint is -- if it is inc content length
         if request.endpoint == "admin.enrol_person":
             request.max_content_length = MAX_REQUEST_BYTES
+  # this is to happen b4 csrf verification bec verify_csrf accesses request.form which causes flask
+  # to process the incoming request body if the upload size limit were increased inside the actual
+  # view function it could be too late bec flask may have already rejected the request for being too
+  # large
 
+    # registers csrf verification globally means every incoming request passes thru verify_csrf b4
+    # reaching its route
     app.before_request(verify_csrf)
-    app.jinja_env.globals["csrf_token"] = csrf_token  # so templates can call csrf_token()
+    # tis approach is safer that manually adding csrf protection to individual views bec a developer
+    # who creates a new post endpoint does not have to rmbr to add a security decorator everytime
+    # application automatically performs the check so templates can call csrf_token() inside jinja
+    # templates
+    app.jinja_env.globals["csp_nonce"] = csp_nonce  # so templates can tag their scripts
+    app.jinja_env.globals["csrf_token"] = csrf_token
+  # a form can generate a hidden csrf field and the server can later verify that token when the form
+  # is submitted
 
-    # display helpers, so the templates can write {{ t_in | short_time }} instead of
-    # doing string slicing and arithmetic inline
+    # display helpers, so the templates can write {{ t_in | short_time }} instead of doing string
+    # slicing and arithmetic inline
     from functools import partial
 
     from .formatting import duration, match_bands, match_quality, match_strength, short_time
@@ -72,10 +105,8 @@ def create_app(config=None):
     app.jinja_env.filters["short_time"] = short_time
     app.jinja_env.globals["duration"] = duration
 
-    # The match column is drawn relative to the recognition cutoff, so the pages have to
-    # know what it currently is. Bound here rather than read in the template: a template
-    # that imports a constant to do arithmetic with is how the old hardcoded 0.6 ended up
-    # in two files and outlived the value it was copied from.
+    # The match column is drawn relative to the recognition cutoff, so the pages have to know what
+    # it currently is. Bound here rather than read in the template
     strong, fair = match_bands(TOLERANCE)
     app.jinja_env.globals.update(
         tolerance=TOLERANCE,
@@ -85,13 +116,64 @@ def create_app(config=None):
         match_strength=partial(match_strength, tolerance=TOLERANCE),
     )
 
+    # Response headers the browser enforces on our behalf. Cheap, and none of them can
+    # break a page that was already working:
+    #
+    #   nosniff          - stop the browser second-guessing a Content-Type. Without it a
+    #                      response we serve as text can be re-interpreted as script.
+    #   frame-ancestors  - refuse to be put in an iframe, which is what stops the camera
+    #     / X-Frame-Options  page or an admin form being framed invisibly over somebody
+    #                      else's page and clicked through. The CSP directive is the
+    #                      modern one and the header is the one older browsers read, so
+    #                      both are sent.
+    #   base-uri         - an injected <base> tag can otherwise repoint every relative
+    #                      URL on the page, including the form posts.
+    #   object-src       - nothing here embeds plugins, so allow none.
+    #   Referrer-Policy  - our paths name people and ids (/admin/users/3/approve); no
+    #                      external site needs to be told which one somebody came from.
+    #
+    # Deliberately NOT a script-src policy. That is the directive that actually defends
+    # against XSS, and it needs a per-request nonce on all four inline <script> blocks in
+    # base.html and camera.html -- worth doing, but it is a change that fails by silently
+    # disabling the camera page, so it wants doing on its own rather than smuggled in here.
+    @app.after_request
+    def set_security_headers(response):
+        response.headers.setdefault("X-Content-Type-Options", "nosniff")
+        response.headers.setdefault("X-Frame-Options", "DENY")
+        response.headers.setdefault("Referrer-Policy", "no-referrer")
+        # script-src names a per-request nonce, so the four inline blocks in base.html and
+        # camera.html run and nothing else does. That is the directive that actually
+        # defends against XSS: injected markup cannot carry this request's nonce, because
+        # it is generated fresh per response and never appears anywhere an attacker can
+        # read before the page is built.
+        #
+        # style-src has to keep 'unsafe-inline' and it is worth being honest about why: a
+        # nonce cannot authorise a style ATTRIBUTE, and five of those remain in the
+        # templates. Removing them is a refactor, not a header change. Injected CSS is a
+        # far narrower problem than injected script, so this is a real gap and a small one.
+        #
+        # img-src allows data: for one thing only -- the inline SVG favicon in base.html.
+        # form-action stops an injected <form> posting the session somewhere else.
+        response.headers.setdefault(
+            "Content-Security-Policy",
+            "default-src 'self'; "
+            f"script-src 'nonce-{csp_nonce()}'; "
+            "style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "object-src 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "frame-ancestors 'none'",
+        )
+        return response
+
     # without these an error falls out of the site's design into a bare Werkzeug page
     from .errors import register_error_handlers
 
-    register_error_handlers(app)
+    register_error_handlers(app) # connects custom error handling functions to flask
 
-    # imported inside the function rather than at module level: the route modules import
-    # from this package, so importing them at the top would be a circular import
+    # imported inside the function rather than at module level: the route modules import from this
+    # package, so importing them at the top would be a circular import
     from .routes import admin_bp, auth_bp, main_bp, recognition_bp, records_bp
 
     app.register_blueprint(main_bp)
@@ -101,3 +183,6 @@ def create_app(config=None):
     app.register_blueprint(admin_bp)
 
     return app
+# create_app() choose configuration create flask app set secret key configure logging configure csrf
+# configure jinja configure recognition values register error handlers import blueprints register
+# blueprintsreturn app finished flask app app = create_app() receives a fully configured application

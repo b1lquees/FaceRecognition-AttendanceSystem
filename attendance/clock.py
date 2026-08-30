@@ -33,8 +33,7 @@ def get_timezone():
 
     Read on every call rather than once at import, so a test can set it afterwards -- the
     same reasoning as get_db_path(). Falls back to whatever the machine is set to, which
-    is what a single-site deployment wants and what the old behaviour effectively was.
-    """
+    is what a single-site deployment wants"""
     name = os.environ.get("TIMEZONE")
     if name:
         return ZoneInfo(name)

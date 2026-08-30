@@ -28,7 +28,7 @@
        stylesheet reads them. Nothing stored means no attribute, and the page behaves
        exactly as it did before either switch existed. localStorage throws rather than
        returning null when a browser has storage blocked, which is what the try is for. #}
-    <script>
+    <script nonce="{{ csp_nonce() }}">
         try {
             var savedTheme = localStorage.getItem("theme");
             if (savedTheme === "light" || savedTheme === "dark") {
@@ -288,7 +288,7 @@
        whatever the block held -- the camera page would otherwise switch the theme switch
        off. matchMedia is what the system would have chosen, so the first click always
        flips away from the theme you are actually looking at. #}
-    <script>
+    <script nonce="{{ csp_nonce() }}">
         (function () {
             var root = document.documentElement;
 

@@ -15,6 +15,6 @@ from attendance import create_app
 app = create_app()
 
 if __name__ == "__main__":
-    # debug comes from the config class, so FLASK_ENV=production turns it off rather
-    # than it being hardcoded on the way app.run(debug=True) used to be
+    # debug comes from the config class, so APP_ENV=production turns it off rather
+    # than it being hardcoded
     app.run(debug=app.config["DEBUG"])

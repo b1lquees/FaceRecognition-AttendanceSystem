@@ -113,6 +113,19 @@ python scripts/init_db.py
 python scripts/create_user.py alice --role admin
 ```
 
+And a separate account for the camera station. `--role` defaults to `viewer`, which is the
+point: the station needs `/camera` and `/recognize`, and neither requires admin.
+
+```bash
+python scripts/create_user.py station
+```
+
+> Signing the door camera in as an administrator leaves an unattended admin session in a
+> corridor: anyone walking up can enrol a face under somebody else's name, remove people,
+> approve accounts, or export the whole attendance archive in one click. It also collapses
+> the audit trail, because every one of those actions is then logged as the station rather
+> than as a person.
+
 Then run it:
 
 ```bash
@@ -186,6 +199,7 @@ python scripts/build_encodings.py
 | --- | --- | --- |
 | `/login`, `/logout` | public | Sign in and out |
 | `/signup` | public | Request an account (created pending, cannot sign in yet) |
+| `/healthz` | public | Liveness probe for the container runtime; returns `ok` or 503 |
 | `/camera` | any user | Live recognition page |
 | `/recognize` | any user | `POST` endpoint that identifies one frame |
 | `/attendance/today` | any user | Today's register |
@@ -272,6 +286,10 @@ people's presence to anyone able to point a webcam at them.
 > Neither mode defends against a **photograph** of the right person — see
 > [Anti-spoofing](#anti-spoofing).
 
+> Personal mode is stronger on *who* and weaker on *where*: the account holder can check
+> themselves in from anywhere they can reach the site, and neither recognition nor liveness
+> can tell. See [Where a check-in may come from](#where-a-check-in-may-come-from).
+
 ### Sessions, CSRF and rate limiting
 
 The secret key signs session cookies, and anyone who knows it can forge one claiming
@@ -279,22 +297,63 @@ The secret key signs session cookies, and anyone who knows it can forge one clai
 (gitignored). In production `FLASK_SECRET_KEY` is required, and its absence stops the
 application starting rather than falling back to something guessable.
 
+Responses carry a Content-Security-Policy. The part that does the work is
+`script-src 'nonce-…'`: every inline `<script>` is tagged with a value generated fresh for
+that response, so the page's own scripts run and injected ones do not — an injection cannot
+carry a nonce it has never seen. `style-src` still allows inline styles, because a nonce
+cannot authorise a style *attribute* and a few remain in the templates; injected CSS is a
+much narrower problem than injected script, but it is a real gap rather than an oversight.
+
+Logging in clears the session first, so nothing from before the sign-in — the CSRF token
+included — carries into the authenticated one.
+
+Sessions last **seven days**, counted from login. This was always bounded, at Flask's
+default of 31 days, and enforced server-side; seven is simply a value somebody chose. Be
+clear about what it is not: with signed cookies there is no server-side session to
+invalidate, so nothing can revoke a leaked cookie early short of rotating
+`FLASK_SECRET_KEY`, which signs out everyone including the camera station. The ceiling is
+absolute rather than idle — traffic does not extend it — which is why it is measured in
+days: a shorter one would expire the door camera mid-use, and a camera that has stopped
+recording is the failure this system can least afford.
+
+> **Sign the camera station in as a `viewer`, not an `admin`.** In kiosk mode the account
+> is the operator, not the person being recorded, so it needs no admin rights — and an
+> unattended admin session sitting at a door is worth more to an attacker than any session
+> length protects against. This is the cheapest security decision available here.
+
 Every `POST` is CSRF-protected by a token held in the session
 ([`attendance/security.py`](attendance/security.py)). Forms carry it in a hidden field;
 `/recognize` posts JSON, so it sends the same value as an `X-CSRF-Token` header.
 
-`/login` and `/signup` are rate limited per client address
-([`attendance/ratelimit.py`](attendance/ratelimit.py)): 10 login attempts per 5 minutes,
-5 signups per hour. The counters live in process memory, so they reset on restart and each
-worker keeps its own — adequate for a single classroom-sized deployment, but anything
-larger wants Flask-Limiter backed by Redis so the count is shared.
+Four routes are rate limited ([`attendance/ratelimit.py`](attendance/ratelimit.py)): 10
+login attempts per 5 minutes, 10 password changes per 5 minutes, 5 signups per hour, and
+60 frames a minute on `/recognize`. The first three guard a password or the approval
+queue; the last one guards the CPU, since recognising a frame is the only genuinely
+expensive thing the server does.
+
+The first three count per client address, which is the only unit available — they are
+attacked by somebody who is not signed in, so the session says nothing. `/recognize`
+counts per address in kiosk mode and **per account in personal mode**, because the limit
+is sized for one camera and in personal mode one address is not one camera: twenty people
+checking in from their own browsers leave an office through one gateway, and counting them
+together would 429 everyone after the first.
+
+The counters live in process memory, so they reset on restart and each worker keeps its
+own — adequate for a single classroom-sized deployment, but anything larger wants
+Flask-Limiter backed by Redis so the count is shared. The store is capped at 10,000
+counters and evicts the least recently used beyond that, so cycling through source
+addresses exhausts memory in neither direction.
+
+**Set `TRUSTED_PROXY_HOPS` if there is a proxy in front**, or all of these collapse into
+one bucket shared by every client — see [Configuration](#configuration).
 
 ### Audit trail
 
 Security-relevant actions are written to a log
 ([`attendance/audit.py`](attendance/audit.py)): logins and failures, signups, approvals,
-rejections, account linking, enrolment, removal, and refused spoof attempts — each with
-who did it and from where. Passwords, tokens and face encodings are never logged.
+rejections, account linking, enrolment, removal, refused spoof attempts, and check-ins
+refused for coming from off site — each with who did it and from where. Passwords, tokens
+and face encodings are never logged.
 
 ## Anti-spoofing
 
@@ -354,6 +413,34 @@ needed:
 python scripts/calibrate_liveness.py --compare
 ```
 
+`--compare` pools every saved run, and reports first how much each one actually measured.
+That part matters more than the thresholds it prints. Frames captured back to back are
+nearly the same measurement — on the runs in this repository the frame-to-frame correlation
+is **+0.91**, which makes 40 samples worth about **two** independent observations. A
+threshold priced on two observations is an anecdote with decimal places, and it explains the
+instability between two runs an hour apart better than lighting alone does.
+
+So capture across time rather than in one burst, and tag each condition:
+
+```bash
+python scripts/calibrate_liveness.py --label real --tag morning --interval 5
+```
+
+Repeat for `spoof`, then again with `--tag midday`, `--tag dusk`, `--tag dark`. Runs
+accumulate instead of overwriting each other, and `--compare` pools the lot — which is the
+point, since one threshold has to survive every condition the door sees.
+
+```bash
+python scripts/calibrate_liveness.py --consecutive
+```
+
+prices a gate that requires several frames in a row to agree rather than judging one at a
+time. It does not compound the way independent sampling would — with correlation that high,
+a frame that passed makes the next one likely to pass too — but it still helps, for a
+different reason: a spoof must *sustain* a score rather than touch it once, so the threshold
+can come down, and a lower threshold refuses fewer real people. On the runs here that moves
+real acceptance from 50% to 69% at zero spoofs admitted, across five frames.
+
 That prices every threshold behaving differently from its neighbours — real frames refused
 against spoof frames admitted — and names the cheapest one that blocked every spoof, with
 what it costs. If that cost exceeds a quarter of genuine frames it tells you to leave the
@@ -379,7 +466,8 @@ that leaves the gate switched on and doing nothing.
 | Variable | Default | Description |
 | --- | --- | --- |
 | `FLASK_SECRET_KEY` | generated for development | Signs session cookies. **Required in production.** |
-| `FLASK_ENV` | unset | `production` makes a missing secret key a hard error and requires HTTPS for the session cookie. |
+| `APP_ENV` | unset | `production` makes a missing secret key a hard error and requires HTTPS for the session cookie. The former name `FLASK_ENV` is still read, with a warning. |
+| `TRUSTED_PROXY_HOPS` | `0` (none), `1` under compose | How many reverse proxies are in front. Set it to the real number when deploying behind one, or every client shares one rate-limit bucket. Never set it higher than the number of proxies you actually run. |
 | `LIVENESS_ENABLED` | `0` (off) | Anti-spoofing. Calibrate before turning on. |
 | `LIVENESS_THRESHOLD` | `0.0` | Score above which a face counts as real. Higher is stricter. |
 | `KIOSK_MODE` | `1` (on) | `1` for a shared door camera, `0` for personal check-in. |
@@ -401,6 +489,99 @@ export FLASK_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32)
 ```
 
 ## Deployment
+
+### With compose (recommended)
+
+[`docker-compose.yml`](docker-compose.yml) runs the application behind
+[Caddy](https://caddyserver.com/), which terminates TLS. Two things make this the way to
+deploy rather than a convenience:
+
+- **The app gets no host port.** `docker run -p 8000:8000` publishes gunicorn straight onto
+  the host, so anyone on the network can reach it over plain HTTP and bypass the proxy
+  entirely. Under compose only Caddy listens; the app is reachable solely on the private
+  network between the two.
+- **The camera needs HTTPS to work at all.** `getUserMedia()` is only exposed in a secure
+  context. Over plain HTTP to anything but `localhost`, `navigator.mediaDevices` is
+  *undefined* and the page cannot open a camera. This is a stronger requirement than
+  `SESSION_COOKIE_SECURE` — the kiosk does not degrade without TLS, it stops working.
+
+```bash
+cp .env.example .env
+```
+
+Put a generated key in it, then:
+
+```bash
+docker compose up -d
+```
+
+Set up the schema and the first administrator on the volume the stack uses:
+
+```bash
+docker compose run --rm app python scripts/init_db.py
+```
+
+```bash
+docker compose run --rm app python scripts/create_user.py alice --role admin
+```
+
+And a separate account for the camera station. `--role` defaults to `viewer`, which is the
+point: the station needs `/camera` and `/recognize`, and neither requires admin.
+
+```bash
+docker compose run --rm app python scripts/create_user.py station
+```
+
+> Signing the door camera in as an administrator leaves an unattended admin session in a
+> corridor: anyone walking up can enrol a face under somebody else's name, remove people,
+> approve accounts, or export the whole attendance archive in one click. It also collapses
+> the audit trail, because every one of those actions is then logged as the station rather
+> than as a person.
+
+**Choose your certificate** in [`Caddyfile`](Caddyfile). It ships configured for the common
+case — a camera on a LAN with no public DNS name — where Caddy runs its own certificate
+authority. That needs one manual step: export its root certificate and install it in the
+kiosk machine's trust store.
+
+```bash
+docker compose cp caddy:/data/caddy/pki/authorities/local/root.crt .
+```
+
+> Do **not** click through the browser's certificate warning instead. An overridden
+> certificate error leaves the page in a state where camera access is unreliable, which is
+> the one capability this deployment exists for.
+
+If you do have a hostname that resolves publicly with ports 80 and 443 reachable, the
+`Caddyfile` has a two-line alternative that obtains a Let's Encrypt certificate on first
+start and renews it indefinitely — no certbot, no cron, no reload hook.
+
+`TRUSTED_PROXY_HOPS=1` is set for you in the compose file, because Caddy is exactly one hop
+and sets `X-Forwarded-For` itself.
+
+**The app service has a healthcheck**, and it is worth knowing what it does and does not
+do. Gunicorn's own `--timeout 60` already reaps a worker wedged mid request, so a hung
+worker was covered before the healthcheck existed. What the arbiter cannot see is a
+container that is up, responsive, and has nothing to serve — brought up without anyone
+running `init_db.py`, so every page fails on its first query. That is what `/healthz`
+looks for: the schema, not merely a file it can open.
+
+> Docker's vocabulary oversells this. Marking a container **unhealthy does not restart
+> it** — Compose acts on health only in `depends_on`, and restart-on-unhealthy is a Swarm
+> feature. What you get is `docker compose ps` telling the truth instead of reporting
+> `Up 6 days` for a container that has served nothing but errors for five of them. Check
+> it, or put something in front that does.
+
+```bash
+docker compose ps
+```
+
+Caddy deliberately waits only for the app to *start*, not to become healthy. The order in
+this section is `up -d` first and `init_db.py` second, so on a first deployment the app is
+legitimately unhealthy for as long as it takes you to run that command — and gating the
+proxy on health would mean no web server at all during the window when you most want to
+see an error page.
+
+### By hand
 
 The image contains the application and nothing else. `.dockerignore` keeps the database,
 the photos and the encoding cache out of the build context deliberately — face data has no
@@ -430,20 +611,41 @@ docker run --rm -it -v attendance-data:/data attendance python scripts/init_db.p
 docker run --rm -it -v attendance-data:/data attendance python scripts/create_user.py alice --role admin
 ```
 
+And a separate account for the camera station. `--role` defaults to `viewer`, which is the
+point: the station needs `/camera` and `/recognize`, and neither requires admin.
+
+```bash
+docker run --rm -it -v attendance-data:/data attendance python scripts/create_user.py station
+```
+
+> Signing the door camera in as an administrator leaves an unattended admin session in a
+> corridor: anyone walking up can enrol a face under somebody else's name, remove people,
+> approve accounts, or export the whole attendance archive in one click. It also collapses
+> the audit trail, because every one of those actions is then logged as the station rather
+> than as a person.
+
 Then run it:
 
 ```bash
-docker run -d --name attendance -p 8000:8000 -v attendance-data:/data -e FLASK_SECRET_KEY=CHANGE-ME -e TIMEZONE=Asia/Karachi attendance
+docker run -d --name attendance -p 8000:8000 -v attendance-data:/data -e FLASK_SECRET_KEY=CHANGE-ME -e TIMEZONE=Asia/Karachi -e TRUSTED_PROXY_HOPS=1 attendance
 ```
 
-The key is not optional: the image sets `FLASK_ENV=production`, and production refuses to
+The key is not optional: the image sets `APP_ENV=production`, and production refuses to
 start without one rather than falling back to a guessable default.
 
-> **It will not work over plain HTTP, by design.** `FLASK_ENV=production` also sets
+> **It will not work over plain HTTP, by design.** `APP_ENV=production` also sets
 > `SESSION_COOKIE_SECURE`, so the browser is told to send the session cookie over HTTPS
 > only. Over `http://localhost:8000` the login succeeds, the cookie is dropped, and the
 > next page returns you to the login form as though the password were wrong. Put a
 > TLS-terminating proxy in front of it; that is the fix, not disabling the flag.
+
+> **Tell the application about that proxy.** Once there is one in front, every request
+> arrives from the proxy's address, so without `TRUSTED_PROXY_HOPS` the rate limiter sees
+> a single client no matter how many there are and the audit trail records one address for
+> everybody. The `docker run` line above sets it to `1`, which is right for a single proxy.
+> Count the hops and set the real number: too low is merely useless, but **too high is
+> worse than leaving it unset**, because `X-Forwarded-For` is written by the client, so
+> trusting one hop more than exists lets anyone claim any address they like.
 
 > **On Windows, run these from PowerShell or CMD rather than Git Bash**, which rewrites
 > arguments that look like Unix paths — `... attendance ls /data` becomes
@@ -457,6 +659,110 @@ Two more things worth knowing:
   running in another disagree by however many hours separate them.
 - **The camera is the browser's, not the container's.** Frames are captured by the page and
   posted to `/recognize`, so nothing needs a webcam passed into the container.
+- **A stopped camera shows a full-screen red `NOT RECORDING` panel.** Nothing server-side
+  can detect this state — no frames arrive, and silence is indistinguishable from an empty
+  room — so the screen is the only alarm there is. If you see it, attendance is not being
+  recorded and somebody needs to sign the station back in.
+
+### Backups
+
+Everything the deployment cannot afford to lose is in two Docker volumes, and neither is
+backed up by anything. A named volume survives `docker compose down`, which is what makes
+it feel safe; it does not survive `docker compose down -v`, a pruned host, or a dead disk.
+
+| Volume | Holds | If you lose it |
+| --- | --- | --- |
+| `attendance-data` | `attendance.db`, `known_faces/`, `encodings.npz` | The attendance record and every enrolled face. Everyone re-enrols from photographs you no longer have. |
+| `caddy-data` | The internal CA's private key and issued certificates | Caddy generates a new CA, and every kiosk that trusted the old root has to be visited and re-trusted by hand. |
+
+`encodings.npz` is the one thing here that is derivable — `scripts/build_encodings.py`
+rebuilds it from `known_faces/`. Back it up anyway; restoring it is a file copy, and
+rebuilding it is a job.
+
+**Do not back the database up by copying the file.** The database runs in WAL mode, so at
+any instant the committed state is spread across `attendance.db` and `attendance.db-wal`.
+`cp` reads them at different moments and can produce a database missing its most recent
+check-ins, or one that will not open at all — and it fails this way only when someone was
+being marked present mid-copy, which is to say rarely, and never while you are testing the
+backup.
+
+SQLite's own backup API takes a consistent snapshot of a live database with writers
+attached, which is exactly the situation here:
+
+```bash
+docker compose exec app python -c "import sqlite3, pathlib; pathlib.Path('/data/backup').mkdir(exist_ok=True); source = sqlite3.connect('/data/attendance.db'); target = sqlite3.connect('/data/backup/attendance.db'); source.backup(target); target.close(); source.close()"
+```
+
+Then copy the snapshot and the photographs off the host:
+
+```bash
+docker compose cp app:/data/backup/attendance.db ./attendance-backup.db
+```
+
+```bash
+docker compose cp app:/data/known_faces ./known_faces-backup
+```
+
+```bash
+docker compose cp caddy:/data/caddy ./caddy-backup
+```
+
+**Off the host.** A backup on the same disk as the thing it protects covers exactly one
+failure — a mistaken `down -v` — and not the one that takes the machine.
+
+> **Treat the backup as biometric data, because it is.** `known_faces/` is a folder of
+> photographs of identifiable people and `encodings.npz` is a mathematical description of
+> their faces; neither becomes less sensitive for being in a tarball on a laptop. Whatever
+> obligations apply to the running system — encryption at rest, access control, a
+> retention limit, deleting someone's data when they ask — apply to every copy of it. A
+> backup nobody remembers taking is the copy that outlives the retention policy.
+
+#### Restoring
+
+Stop the application first. Restoring underneath a running worker means overwriting a file
+that has connections open on it, which is the corruption case above with the steps in the
+other order.
+
+```bash
+docker compose stop app
+```
+
+```bash
+docker compose cp ./attendance-backup.db app:/data/attendance.db
+```
+
+```bash
+docker compose cp ./known_faces-backup app:/data/known_faces
+```
+
+**Then fix the ownership, or the application will start and fail to write.** The container
+runs as uid 10001, and `docker compose cp` writes what it copies in as root — so a restored
+database is readable, every page renders, and the first check-in of the day fails with
+"attempt to write a readonly database".
+
+```bash
+docker compose exec -u root app chown -R attendance:attendance /data
+```
+
+> **On Windows, run that one from PowerShell or CMD.** It is the exact shape Git Bash
+> rewrites — `/data` becomes `C:/Program Files/Git/data` and the command fails with
+> "cannot access", having changed nothing, while the database stays root-owned and the
+> next check-in still fails. `MSYS_NO_PATHCONV=1` in front of it is the Git Bash fix.
+
+The healthcheck catches this state, so you do not have to remember to look for it:
+`/healthz` treats a database it cannot write to as unhealthy, for exactly this reason.
+
+```bash
+docker compose start app
+```
+
+There is one thing to delete rather than restore: the old `attendance.db-wal` and
+`attendance.db-shm` sidecars, if any came along. They belong to the database that was
+replaced, and SQLite will recreate them.
+
+**Test the restore before you need it**, on a throwaway volume rather than the live one. An
+untested backup is a belief about a file, and the failure mode of that belief is finding
+out on the morning the disk dies.
 
 ## Development
 
@@ -482,7 +788,7 @@ attendance/
     clock.py                timezone-aware timestamps
     pagination.py           which slice of a list to show
     formatting.py           duration, time and match-column display helpers
-    ratelimit.py            login and signup throttling
+    ratelimit.py            per-route request throttling
     audit.py                logging setup and the audit trail
     errors.py               the 404/413/500 pages, in the site's own design
     models/                 the anti-spoofing weights and their licence
@@ -522,7 +828,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-480 tests covering attendance de-duplication, recognition of unknown faces, password
+519 tests covering attendance de-duplication, recognition of unknown faces, password
 hashing, route-level authentication and authorisation, schema migrations, timezone
 handling, enrolment validation, the stylesheet's own invariants and the calibration
 arithmetic. Every test runs against a throwaway database in pytest's temporary directory,
@@ -550,6 +856,15 @@ matters.
   before assuming it behaves the same.
 - **Even calibrated, it does not stop a video replay** on a good screen. It raises the bar
   well above "a printed photo works"; it does not eliminate the attack.
+- **Personal mode proves who is at the camera, never where the camera is.** With
+  `KIOSK_MODE=0` a signed-in person checks themselves in from whatever browser they are
+  holding, and nothing in the request distinguishes the office from their kitchen. The
+  client's address is read twice on the way through — once to count requests, once to write
+  the audit line — and neither reading affects whether a row is recorded. Nothing in the
+  recognition path can close this: a stricter `TOLERANCE` does not help, because it is the
+  right person, and liveness does not help, because it is a live face. Kiosk mode has the
+  opposite gap and gets location for free, because there is one camera and somebody screwed
+  it to a wall. The constraint has to come from outside recognition entirely.
 - **Recognition runs synchronously in the request thread.** Detection uses a half-scale
   frame, but encoding cannot — roughly 1.2s per frame on modest hardware. Fine for one
   camera; it will not hold up under concurrent users.
@@ -573,9 +888,14 @@ matters.
 - [x] Docker image and a production WSGI entry point
 - [x] Calibrate anti-spoofing — done, and the answer was no on this camera
 - [ ] Revisit anti-spoofing with fixed lighting, or a camera whose scores are stable across
-      the day; the overlap is a property of this setup, not necessarily of the model
-- [ ] `docker-compose.yml` with TLS termination, so the run instructions stop needing a
+      the day; the overlap is a property of this setup, not necessarily of the model.
+      **Measure the sampling first** — `--consecutive` reports that the existing runs are
+      worth about two independent samples each, so the next experiment needs `--interval`
+      and several `--tag`ged conditions before any camera is bought
+- [x] `docker-compose.yml` with TLS termination, so the run instructions stop needing a
       caveat
+- [x] A backup and restore procedure, and a healthcheck that can tell a running container
+      from a serving one
 
 ## Credits
 

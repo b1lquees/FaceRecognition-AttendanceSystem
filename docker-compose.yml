@@ -1,0 +1,89 @@
+# The production stack: the application, and a proxy in front of it terminating TLS.
+#
+# `docker run -p 8000:8000` publishes gunicorn straight onto the host, which means anyone
+# on the network can reach it over plain http and walk past the proxy entirely. Here the
+# app has no host port at all -- only Caddy listens, and it talks to the app over the
+# private network compose creates between them.
+#
+#     cp .env.example .env     # and put a real key in it
+#     docker compose up -d
+#
+services:
+  app:
+    build: .
+    restart: unless-stopped
+
+    # The image already sets APP_ENV=production and the three /data paths. This is what a
+    # deployment has to add on top.
+    environment:
+      # Caddy is the one hop in front, and it sets X-Forwarded-For itself. Without this
+      # the app sees every request as coming from the proxy: one shared rate-limit bucket
+      # for the whole site, and one address in the audit log for everybody.
+      TRUSTED_PROXY_HOPS: "1"
+
+    # FLASK_SECRET_KEY lives here and is required -- production refuses to start without
+    # one rather than falling back to something guessable. If .env is missing, compose
+    # stops with an error, which is the correct outcome.
+    env_file:
+      - .env
+
+    # No `ports:`. Deliberately. `expose` documents the port for humans and reaches only
+    # the compose network; nothing is published to the host.
+    expose:
+      - "8000"
+
+    volumes:
+      - attendance-data:/data
+
+    # Answers a question gunicorn cannot: whether this worker has a database to serve
+    # from. `--timeout 60` in the Dockerfile already reaps a worker wedged mid request, so
+    # a *hung* worker is covered and was covered before this existed. The gap is a
+    # container that is up, responsive, and useless -- brought up without anyone running
+    # init_db.py, so every page 500s on its first query while the process looks perfect.
+    #
+    # python rather than curl because the slim image ships neither curl nor wget, and
+    # adding one to the image for this would be a package installed forever to run a
+    # four-line request. urlopen raises on 503, which exits non-zero, which is the signal.
+    #
+    # Read what this does and does not buy you, because Docker's naming oversells it:
+    # marking a container unhealthy does NOT restart it. Compose acts on health only in
+    # `depends_on`, and restart-on-unhealthy is a Swarm feature. What you get is an
+    # honest answer from `docker compose ps` instead of "Up 6 days" on a container that
+    # has served nothing but errors for five of them.
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      # The first request to a fresh worker loads the face encodings and the anti-spoofing
+      # session as well as answering, which is why the Dockerfile raises gunicorn's
+      # timeout to 60s. Starting the clock any earlier just marks a booting container
+      # unhealthy for its first minute every single time.
+      start_period: 60s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+
+    # 80 as well as 443: Caddy redirects http to https on it, and a public certificate
+    # needs it reachable for the ACME challenge. On a LAN-only deployment it only does
+    # the redirect, which is still worth having -- somebody will type the bare address.
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # certificates and the internal CA's own key. Losing this volume means every kiosk
+      # that trusted the old CA has to trust a new one, so it is named, not anonymous.
+      - caddy-data:/data
+      - caddy-config:/config
+
+    depends_on:
+      - app
+
+volumes:
+  attendance-data:
+  caddy-data:
+  caddy-config:

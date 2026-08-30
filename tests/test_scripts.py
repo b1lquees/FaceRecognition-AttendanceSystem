@@ -235,3 +235,68 @@ def test_reset_attendance_needs_confirmation(child_env):
     )
 
     assert len(get_todays_attendance()) == 1, f"deleted without confirmation:\n{result.stdout}"
+
+
+# --- build_encodings.py ---------------------------------------------------------------
+#
+# The one script that can destroy data. It rebuilds the whole cache from the photos on
+# disk, so it is a full overwrite -- and it used to read a hardcoded PROJECT_ROOT /
+# "known_faces" while writing the env-aware ENCODINGS_FILE. Point KNOWN_FACES_DIR at
+# persistent storage, as the README tells a deployment to, and the rebuild scanned the
+# empty directory beside the source and wrote the empty result over the real cache.
+#
+# Nothing caught it because the checks above are static: this script has no argument
+# parser, so it cannot be run with --help, and running it for real used to mean rebuilding
+# the developer's own cache. Pointing all three paths at a tmp_path is what makes it safe
+# to actually execute.
+
+@pytest.fixture
+def rebuild_env(child_env, tmp_path):
+    """child_env, with the photo directory and the cache both pointed somewhere disposable."""
+    env = dict(child_env)
+    env["KNOWN_FACES_DIR"] = str(tmp_path / "photos")
+    env["ENCODINGS_FILE"] = str(tmp_path / "encodings.npz")
+    return env
+
+
+def test_build_encodings_reads_the_configured_photo_directory(rebuild_env, tmp_path):
+    photos = tmp_path / "photos"
+    photos.mkdir()
+
+    result = run("build_encodings.py", env=rebuild_env)
+
+    # it found nothing, which is correct for an empty directory -- the point is WHICH
+    # directory it says it looked in
+    assert str(photos) in result.stdout
+    assert "known_faces" not in result.stdout.replace(str(photos), "")
+
+
+def test_build_encodings_explains_a_missing_photo_directory(rebuild_env):
+    result = run("build_encodings.py", env=rebuild_env)  # never created
+
+    assert result.returncode == 1
+    assert "KNOWN_FACES_DIR" in result.stdout
+
+
+# The consequence the path bug had, guarded directly. A rebuild that finds nobody is
+# almost always one pointed at the wrong place, and it arrives in the middle of somebody
+# already trying to fix enrolment -- so it must not be the command that deletes everything.
+def test_build_encodings_refuses_to_overwrite_a_cache_with_nothing(rebuild_env, tmp_path):
+    import numpy as np
+
+    from attendance.recognition import (
+        ENCODING_LENGTH,
+        load_known_encodings,
+        save_known_encodings,
+    )
+
+    cache = tmp_path / "encodings.npz"
+    save_known_encodings({"Alice": [np.zeros(ENCODING_LENGTH)]}, cache)
+    (tmp_path / "photos").mkdir()  # exists, but holds no photos at all
+
+    result = run("build_encodings.py", env=rebuild_env)
+
+    assert result.returncode == 1
+    assert "Refusing" in result.stdout
+    assert list(load_known_encodings(cache)) == ["Alice"]  # untouched
+

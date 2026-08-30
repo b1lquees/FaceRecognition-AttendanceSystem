@@ -40,6 +40,15 @@ def login():
         result = verify_user(username, password)
 
         if result.status == "ok":
+            # Everything from before the login goes, and the new session starts empty.
+            # A session that survives a privilege change carries whatever was in it into
+            # the authenticated one -- including the CSRF token. Nobody can forge a signed
+            # cookie without the secret key, but anyone able to *plant* one (a sibling
+            # subdomain, or any XSS anywhere on the origin) would then know a token that
+            # stays valid after the victim signs in, which is the whole point of having it.
+            # Rotating on privilege change is the standard answer and costs nothing here:
+            # there is nothing in a logged-out session worth keeping.
+            session.clear()
             session["username"] = username
             session["role"] = result.role
             audit("login.success", account=username, role=result.role)

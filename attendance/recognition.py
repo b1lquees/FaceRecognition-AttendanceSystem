@@ -71,6 +71,7 @@ TOLERANCE = 0.5
 DETECTION_SCALE = 0.5
 
 _known_encodings = None  # populated on first use by get_known_encodings()
+_cache_stamp = None      # identity of the file those encodings were read from
 
 
 def load_known_encodings(path=None):
@@ -133,19 +134,61 @@ def save_known_encodings(known_encodings, path=None):
     return path
 
 
+def file_stamp(path):
+    """What the encoding file looks like on disk right now, or None if it is not there.
+
+    Modification time and size together rather than the time alone. Filesystems differ in
+    how finely they record mtime, and the write this has to notice is os.replace() landing
+    a file that was created moments earlier -- two of those inside one tick of a coarse
+    clock would otherwise be indistinguishable. The size is free and breaks that tie.
+    """
+    try:
+        info = Path(path).stat()
+    except OSError:
+        return None  # missing, or unreadable: either way there is nothing to have cached
+    return (info.st_mtime_ns, info.st_size)
+
+
 def get_known_encodings():
-    """The loaded encodings, reading them from disk the first time they are asked for."""
-    global _known_encodings
-    if _known_encodings is None:
+    """The loaded encodings, re-read whenever the file on disk has changed underneath.
+
+    The re-read is the point, and it is about running more than one worker. This cache is
+    per process and the deployment runs two of them (see the Dockerfile), so enrolling
+    somebody updated the encodings in whichever worker happened to serve that request and
+    left the other holding the old set until a restart. Frames arrive every 1.5s and are
+    spread across both, so a newly enrolled person was recognised in roughly half of them
+    -- which looks like bad recognition rather than a stale cache, and is the harder kind
+    of bug to be told about. Removal was the same fault pointing somewhere worse: the
+    entire purpose of un-enrolling somebody is to stop recognising them, and one worker
+    carried on doing it.
+
+    Checking every call rather than on a timer because a stat() is microseconds against
+    the ~1.2s recognising a frame costs. At that ratio it is free, and it needs no
+    invalidation protocol between processes -- the file is the shared state, so the file
+    is what gets asked.
+    """
+    global _known_encodings, _cache_stamp
+
+    stamp = file_stamp(ENCODINGS_FILE)
+    if _known_encodings is None or stamp != _cache_stamp:
         _known_encodings = load_known_encodings()
+        _cache_stamp = stamp
     return _known_encodings
 
 
 def reload_known_encodings():
-    """Re-read the cache from disk, e.g. after someone has just been enrolled."""
-    global _known_encodings
-    _known_encodings = load_known_encodings()
-    return _known_encodings
+    """Force a re-read, e.g. immediately after someone has just been enrolled.
+
+    Now that get_known_encodings() notices the file changing on its own, this is no longer
+    what makes an enrolment visible -- it is what makes it visible in this process without
+    waiting for the next stat, and it is what the command-line scripts call. Clearing the
+    stamp as well as the encodings matters: leaving a stale stamp behind would make the
+    very next read decide the file had changed and load it a second time.
+    """
+    global _known_encodings, _cache_stamp
+    _known_encodings = None
+    _cache_stamp = None
+    return get_known_encodings()
 
 
 def identify_face(unknown_encoding, known_encodings=None, tolerance=TOLERANCE):
