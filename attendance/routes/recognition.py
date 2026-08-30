@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+from ipaddress import ip_address
 
 import cv2
 import face_recognition
@@ -34,6 +35,26 @@ STATUS_PRIORITY = [
     "not_checked_in", "mismatch", "not_linked",
     "unknown",
 ]
+
+
+def on_site(address, networks):
+    """Whether this client address falls inside one of the permitted networks.
+
+    An address that is missing or will not parse is refused, not admitted. That is the
+    entire point of a gate: "I could not tell" has to resolve to no, or the first
+    malformed thing to arrive walks straight through it.
+
+    An address of a family nobody listed is refused for the same reason, and by the same
+    line of code -- membership across families is False rather than an error, so a site
+    answering on both IPv4 and IPv6 has to list both. Failing closed there is right and
+    will look exactly like a misconfiguration on the day it happens, which is why the
+    README says so out loud.
+    """
+    try:
+        client = ip_address(address or "")
+    except ValueError:
+        return False
+    return any(client in network for network in networks)
 
 
 def checkin_client_key():
@@ -157,6 +178,24 @@ def recognize():
     # Before the body is looked at, let alone decoded. A refusal here should cost nothing,
     # and this is by a wide margin the cheapest check in the function.
     #
+    # Deliberately independent of KIOSK_MODE. Personal mode is what makes it necessary --
+    # see CHECKIN_NETWORKS in config.py -- but a kiosk deployment that wants its door
+    # camera pinned to the LAN gets the same setting rather than a second one.
+    networks = current_app.config["CHECKIN_NETWORKS"]
+    if networks and not on_site(request.remote_addr, networks):
+        # Audited rather than merely logged: a run of these is somebody checking in from
+        # somewhere they are not meant to be, which is precisely the thing worth being
+        # able to find afterwards. The address is not passed in because audit() already
+        # records it on every line.
+        audit("checkin.offsite")
+        # `offsite` so the page can tell this apart from the session having expired, which
+        # is the other thing that stops the loop with a 403. Both are permanent for this
+        # page load; only one of them is worth explaining accurately.
+        return jsonify({
+            "error": "Check-in is only available on site.",
+            "offsite": True,
+        }), 403
+
     # silent=True makes get_json() return None on malformed JSON instead of raising,
     # so a bad request becomes a clean 400 rather than a 500 with a stack trace
     data = request.get_json(silent=True)

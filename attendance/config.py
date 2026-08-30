@@ -8,6 +8,7 @@ import logging  # to produce a warning if flask_env var is used
 import os  # to read environment variables
 import secrets  # cryptographically secure random secret key
 from datetime import timedelta
+from ipaddress import ip_network
 from pathlib import Path
 
 # config.py lives in attendance/, so the project root is one level up
@@ -70,6 +71,41 @@ def env_int(name, default):
         raise RuntimeError(
             f"{name} must be a whole number, got {raw!r}"
         ) from None
+
+
+def env_networks(name, default=()):
+    """Read a comma-separated list of CIDR networks, refusing to guess at a typo.
+
+    The same reasoning as env_float and env_int, and it carries more weight here than for
+    either of them. This list decides where a check-in is allowed from, so an entry with a
+    typo in it that fell back to the default would OPEN the gate rather than narrow it --
+    the one direction a configuration mistake must never fail in. An unparseable value
+    stops the application instead.
+
+    strict=False so "192.168.1.5/24" is accepted rather than refused for having host bits
+    set. That is how somebody writes down the network their own machine is on, the meaning
+    is not ambiguous, and refusing it would be pedantry dressed up as safety.
+
+    Empty means unset, for the same reason as everywhere else in this module: `setx NAME
+    ""` is how a variable gets cleared on Windows and it leaves an empty string behind.
+    """
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return tuple(ip_network(entry, strict=False) for entry in default)
+
+    networks = []
+    for part in raw.split(","):
+        part = part.strip()
+        if not part:
+            continue  # a trailing or doubled comma is a typo that changes no meaning
+        try:
+            networks.append(ip_network(part, strict=False))
+        except ValueError as error:
+            raise RuntimeError(
+                f"{name} contains {part!r}, which is not an IP address or CIDR "
+                f"network: {error}"
+            ) from None
+    return tuple(networks)
 
 
 def env_path(name, default):
@@ -190,6 +226,31 @@ class Config: # base configuration contains settings shared across environment
     # read from the environment at import, which is safe here in a way it was not for the secret
     # key: this reads a flag, it does not generate or write anything
     KIOSK_MODE = env_flag("KIOSK_MODE", default=True)
+
+    # where a check-in may come from
+    # A comma-separated list of CIDR networks -- "10.0.0.0/8,192.168.1.0/24". Empty, the
+    # default, means no restriction at all, which is what every deployment already has.
+    #
+    # It exists because recognition answers "who is in front of this camera" and has no
+    # way to answer "where is this camera". In kiosk mode that gap does not matter,
+    # because somebody screwed the camera to a wall and the location is a fact about the
+    # hardware. In personal mode it matters a great deal: a signed-in person can check
+    # themselves in from their kitchen, and nothing in the recognition path can tell,
+    # because it IS them and they ARE live. A stricter TOLERANCE does not help and neither
+    # does the liveness gate. The missing check is not a better face check, so it has to
+    # come from outside recognition entirely -- which is this.
+    #
+    # Be honest about what it is worth. Anyone on a VPN into these networks passes, so
+    # this is a policy control of the same class as a door badge, not proof of presence.
+    # What it buys is moving the attack from "anywhere with a browser" to "on the
+    # premises, or deliberately tunnelling in", and that is a real change of category for
+    # a very small amount of code.
+    #
+    # TRUSTED_PROXY_HOPS has to be right for this to mean anything. Behind an uncorrected
+    # proxy every request appears to come from the proxy, so the gate admits everybody or
+    # nobody depending on which side of it that proxy sits -- and "admits everybody" is
+    # the plausible half, because the proxy is usually on the network you just listed.
+    CHECKIN_NETWORKS = env_networks("CHECKIN_NETWORKS")
 
     # anti-spoofing
     # OFF by default, which deserves an explanation because a security control that defaults to off

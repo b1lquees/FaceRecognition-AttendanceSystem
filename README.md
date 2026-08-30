@@ -290,6 +290,50 @@ people's presence to anyone able to point a webcam at them.
 > themselves in from anywhere they can reach the site, and neither recognition nor liveness
 > can tell. See [Where a check-in may come from](#where-a-check-in-may-come-from).
 
+### Where a check-in may come from
+
+Recognition answers *who is in front of this camera* and has no way to answer *where is
+this camera*. Kiosk mode does not need it to: somebody screwed the camera to a wall, so
+the location is a fact about the hardware. Personal mode has no such fact, and this is the
+consequence — an enrolled person can sit at home, point their own laptop at their own face
+and be marked present, with a correct password, a live face and a distance well inside the
+tolerance. Every control in the system returns the right answer.
+
+Nothing added to the recognition path fixes that. A stricter `TOLERANCE` does not, because
+it is the right person; the liveness gate does not, because it is a live face. The check
+that is missing is a different kind of check, so it comes from outside:
+
+```bash
+CHECKIN_NETWORKS=10.0.0.0/8,192.168.1.0/24
+```
+
+`/recognize` then refuses any frame from an address outside that list, before decoding
+anything, with a `403` and an audited `checkin.offsite` line. Unset — the default — means
+no restriction, so existing deployments are unaffected. It applies in both modes: a kiosk
+that wants its door camera pinned to the LAN uses the same setting.
+
+Be clear about its strength. Anyone on a VPN into those networks passes, so this is a
+policy control of the same class as a door badge rather than proof of presence. What it
+buys is moving the attack from *anywhere with a browser* to *on the premises, or
+deliberately tunnelling in* — a real change of category, not a solved problem.
+
+Three things that will bite:
+
+- **`TRUSTED_PROXY_HOPS` has to be right**, or the gate is meaningless. Behind an
+  uncorrected proxy every request appears to come from the proxy, and the proxy is usually
+  *on* the network you just listed — so the gate admits the entire internet while looking
+  configured.
+- **It fails closed on anything it cannot place**, including an address family nobody
+  listed. A site answering on both IPv4 and IPv6 must list both, or the v6 clients are all
+  refused.
+- **A typo stops the application starting.** An unparseable entry is a hard error rather
+  than a fallback, because falling back would silently remove the restriction — the one
+  direction this setting must never fail in.
+
+> Even with it, a phone on the office wifi plus the right face is a valid check-in from the
+> car park. A browser webcam can prove who is in front of it; proving where it is standing
+> needs hardware you control, which is what kiosk mode is.
+
 ### Sessions, CSRF and rate limiting
 
 The secret key signs session cookies, and anyone who knows it can forge one claiming
@@ -471,6 +515,7 @@ that leaves the gate switched on and doing nothing.
 | `LIVENESS_ENABLED` | `0` (off) | Anti-spoofing. Calibrate before turning on. |
 | `LIVENESS_THRESHOLD` | `0.0` | Score above which a face counts as real. Higher is stricter. |
 | `KIOSK_MODE` | `1` (on) | `1` for a shared door camera, `0` for personal check-in. |
+| `CHECKIN_NETWORKS` | unset (no restriction) | Comma-separated CIDRs that `/recognize` will accept a frame from, e.g. `10.0.0.0/8,192.168.1.0/24`. Mostly for personal mode — see [Where a check-in may come from](#where-a-check-in-may-come-from). Needs `TRUSTED_PROXY_HOPS` to be correct. |
 | `TIMEZONE` | the machine's | IANA name, e.g. `Europe/London`. Times are recorded in this zone. |
 | `LOG_LEVEL` | `INFO` | The audit trail is logged at INFO; raising this discards it. |
 | `LOG_FILE` | unset | Also write a rotating log file. Unset means stderr only. |
@@ -864,7 +909,10 @@ matters.
   recognition path can close this: a stricter `TOLERANCE` does not help, because it is the
   right person, and liveness does not help, because it is a live face. Kiosk mode has the
   opposite gap and gets location for free, because there is one camera and somebody screwed
-  it to a wall. The constraint has to come from outside recognition entirely.
+  it to a wall. The constraint has to come from outside recognition, which is what
+  `CHECKIN_NETWORKS` is — and it is a policy control rather than proof, since a VPN back
+  into those networks passes. See
+  [Where a check-in may come from](#where-a-check-in-may-come-from).
 - **Recognition runs synchronously in the request thread.** Detection uses a half-scale
   frame, but encoding cannot — roughly 1.2s per frame on modest hardware. Fine for one
   camera; it will not hold up under concurrent users.

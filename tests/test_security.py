@@ -2,6 +2,7 @@ import re
 import time
 from collections import deque
 from datetime import timedelta
+from ipaddress import ip_network
 
 import pytest
 
@@ -437,6 +438,121 @@ def test_kiosk_mode_still_counts_by_address(client, login, csrf, app):
     # being limited is the machine at the door, and it is the same machine
     login(username="relief", password="relief-password")
     assert post_frame(client, csrf).status_code == 429
+
+
+# --- where a check-in may come from ---------------------------------------------------
+#
+# Recognition answers "who is in front of this camera" and cannot answer "where is this
+# camera". In kiosk mode that gap is closed by somebody having screwed the camera to a
+# wall. In personal mode nothing closes it: the account holder can check themselves in
+# from their kitchen with their own real face, and neither a stricter TOLERANCE nor the
+# liveness gate can tell, because it IS them and they ARE live.
+#
+# CHECKIN_NETWORKS is the constraint from outside recognition. It is not proof of presence
+# -- a VPN passes -- but it moves the attack from "anywhere with a browser" to "on the
+# premises, or deliberately tunnelling in".
+
+
+class OnlyFromTheOffice(TestingConfig):
+    CHECKIN_NETWORKS = (ip_network("192.168.1.0/24"),)
+
+
+def frame_from(client, csrf, address):
+    return client.post(
+        "/recognize",
+        json={"image": "not-an-image"},
+        headers={"X-CSRF-Token": csrf, "X-Forwarded-For": address},
+    )
+
+
+def signed_in_client(config, csrf, temp_db):
+    """A client on the given config, signed in, with the CSRF token seeded."""
+    client = create_app(config).test_client()
+    create_user("viewer1", "the-real-password")
+    with client.session_transaction() as session:
+        session["_csrf_token"] = csrf
+    client.post(
+        "/login",
+        data={"username": "viewer1", "password": "the-real-password", "_csrf_token": csrf},
+    )
+    with client.session_transaction() as session:
+        session["_csrf_token"] = csrf
+    return client
+
+
+class OfficeBehindOneProxy(OnlyFromTheOffice):
+    TRUSTED_PROXY_HOPS = 1
+
+
+def test_an_address_on_the_permitted_network_is_let_through(temp_db, csrf):
+    client = signed_in_client(OfficeBehindOneProxy, csrf, temp_db)
+
+    # 400 is the frame failing validation, which means it reached the view at all
+    assert frame_from(client, csrf, "192.168.1.40").status_code == 400
+
+
+def test_an_address_outside_it_is_refused(temp_db, csrf):
+    client = signed_in_client(OfficeBehindOneProxy, csrf, temp_db)
+
+    response = frame_from(client, csrf, "203.0.113.9")
+
+    assert response.status_code == 403
+    assert response.get_json()["offsite"] is True
+
+
+# the page has to tell this apart from the session expiring, which is the other thing that
+# answers 403 and stops the loop. only one of them can be explained accurately.
+def test_the_refusal_is_json_the_camera_page_can_act_on(temp_db, csrf):
+    client = signed_in_client(OfficeBehindOneProxy, csrf, temp_db)
+
+    response = frame_from(client, csrf, "203.0.113.9")
+
+    assert response.is_json
+    assert "error" in response.get_json()
+
+
+def test_the_refusal_is_audited(temp_db, csrf, caplog):
+    client = signed_in_client(OfficeBehindOneProxy, csrf, temp_db)
+
+    with caplog.at_level("INFO"):
+        frame_from(client, csrf, "203.0.113.9")
+
+    assert "checkin.offsite" in caplog.text
+    assert "203.0.113.9" in caplog.text   # audit() records where, which is the point
+
+
+# An empty setting is every deployment that exists today, and it must stay a no-op.
+def test_an_empty_setting_restricts_nothing(temp_db, csrf):
+    client = signed_in_client(TestingConfig, csrf, temp_db)
+
+    assert frame_from(client, csrf, "203.0.113.9").status_code == 400
+
+
+# The gate fails closed on anything it cannot place, because "I could not tell" resolving
+# to yes is how a gate becomes decoration. A site answering on both families has to list
+# both, and this is the test that says so.
+def test_an_address_of_an_unlisted_family_is_refused(temp_db, csrf):
+    client = signed_in_client(OfficeBehindOneProxy, csrf, temp_db)
+
+    assert frame_from(client, csrf, "2001:db8::1").status_code == 403
+
+
+def test_an_unparseable_address_is_refused(temp_db, csrf):
+    client = signed_in_client(OfficeBehindOneProxy, csrf, temp_db)
+
+    assert frame_from(client, csrf, "not-an-address").status_code == 403
+
+
+# Without TRUSTED_PROXY_HOPS the forwarded header is ignored, so behind a proxy every
+# request carries the proxy's own address -- and the proxy is usually ON the network
+# somebody just listed. The gate then admits the entire internet while looking configured,
+# which is the failure worth having a test for rather than a sentence.
+def test_without_a_trusted_proxy_the_forwarded_address_does_not_open_the_gate(temp_db, csrf):
+    client = signed_in_client(OnlyFromTheOffice, csrf, temp_db)
+
+    # the test client's own address is 127.0.0.1, which is not on the permitted network,
+    # and claiming to be on it in a header changes nothing
+    assert frame_from(client, csrf, "192.168.1.40").status_code == 403
 
 
 # A bucket per view, so spending one route's allowance cannot lock anyone out of another.

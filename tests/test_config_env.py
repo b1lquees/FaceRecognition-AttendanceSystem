@@ -1,13 +1,16 @@
+from ipaddress import ip_address
 from pathlib import Path
 
 import pytest
 
 from attendance.config import (
+    Config,
     DevelopmentConfig,
     ProductionConfig,
     env_flag,
     env_float,
     env_int,
+    env_networks,
     env_path,
     get_config,
 )
@@ -181,3 +184,69 @@ def test_app_env_wins_over_the_old_name(no_env, monkeypatch):
     monkeypatch.setenv("FLASK_ENV", "production")
 
     assert get_config() is DevelopmentConfig
+
+
+# --- CHECKIN_NETWORKS -----------------------------------------------------------------
+#
+# The gate that answers the one question recognition cannot: not who is at the camera,
+# but where the camera is. Parsing it wrongly fails in the dangerous direction, so the
+# helper refuses a typo rather than falling back to "no restriction".
+
+def test_networks_are_parsed_from_a_comma_separated_list(monkeypatch):
+    monkeypatch.setenv("NETS", "10.0.0.0/8, 192.168.1.0/24")
+
+    networks = env_networks("NETS")
+
+    assert len(networks) == 2
+    assert ip_address("10.1.2.3") in networks[0]
+    assert ip_address("192.168.1.50") in networks[1]
+
+
+def test_a_bare_address_is_a_single_host(monkeypatch):
+    monkeypatch.setenv("NETS", "203.0.113.7")
+
+    networks = env_networks("NETS")
+
+    assert ip_address("203.0.113.7") in networks[0]
+    assert ip_address("203.0.113.8") not in networks[0]
+
+
+# how somebody writes down the network their own machine is on. the meaning is not
+# ambiguous, so refusing it would be pedantry rather than safety
+def test_host_bits_are_allowed_and_masked_off(monkeypatch):
+    monkeypatch.setenv("NETS", "192.168.1.55/24")
+
+    assert str(env_networks("NETS")[0]) == "192.168.1.0/24"
+
+
+@pytest.mark.parametrize("value", ["", " ", "\t"])
+def test_an_empty_variable_means_no_restriction(monkeypatch, value):
+    monkeypatch.setenv("NETS", value)
+
+    assert env_networks("NETS") == ()
+
+
+def test_an_unset_variable_means_no_restriction(monkeypatch):
+    monkeypatch.delenv("NETS", raising=False)
+
+    assert env_networks("NETS") == ()
+
+
+def test_a_trailing_comma_is_ignored(monkeypatch):
+    monkeypatch.setenv("NETS", "10.0.0.0/8,")
+
+    assert len(env_networks("NETS")) == 1
+
+
+# The important one. A typo that fell back to the default would remove the restriction
+# entirely -- the single direction this setting must never fail in.
+@pytest.mark.parametrize("value", ["10.0.0.0/33", "not-an-address", "10.0.0.0/8,oops"])
+def test_an_unparseable_entry_stops_the_app(monkeypatch, value):
+    monkeypatch.setenv("NETS", value)
+
+    with pytest.raises(RuntimeError, match="NETS"):
+        env_networks("NETS")
+
+
+def test_the_default_is_no_restriction_at_all():
+    assert Config.CHECKIN_NETWORKS == ()
