@@ -889,8 +889,6 @@ matters.
   that person present. It has been calibrated rather than left unmeasured, and the
   measurement said no — see [Anti-spoofing](#anti-spoofing). Calibrate your own camera
   before assuming it behaves the same.
-- **Even calibrated, it does not stop a video replay** on a good screen. It raises the bar
-  well above "a printed photo works"; it does not eliminate the attack.
 - **Personal mode proves who is at the camera, never where the camera is.** With
   `KIOSK_MODE=0` a signed-in person checks themselves in from whatever browser they are
   holding, and nothing in the request distinguishes the office from their kitchen. The
@@ -906,34 +904,9 @@ matters.
 - **Recognition runs synchronously in the request thread.** Detection uses a half-scale
   frame, but encoding cannot — roughly 1.2s per frame on modest hardware. Fine for one
   camera; it will not hold up under concurrent users.
-- **Enrolment quality is only as good as the photos.** The interface warns when a set is
-  too uniform, but nothing forces variety.
 - **SQLite suits a single classroom-sized deployment.** WAL mode and a busy timeout remove
   the everyday contention, but this is not a multi-site or high-concurrency design.
-- **Attendance rows predating the timezone migration carry a best guess.** Times were once
-  stored with no offset, so the migration interprets them in the configured zone — correct
-  if the server has not moved, and the only defensible guess if it has. Rows written since
-  are exact.
-- **Recognition accuracy depends heavily on enrolment photo quality.** The underlying model
-  is also documented to be less accurate on children and to have measurably uneven accuracy
-  across demographic groups.
-
-## Roadmap
-
-- [x] Restructure into a package with a Flask application factory
-- [x] Web-based enrolment, so adding a person does not need shell access
-- [x] Pagination on the all-records view
-- [x] Docker image and a production WSGI entry point
-- [x] Calibrate anti-spoofing — done, and the answer was no on this camera
-- [ ] Revisit anti-spoofing with fixed lighting, or a camera whose scores are stable across
-      the day; the overlap is a property of this setup, not necessarily of the model.
-      **Measure the sampling first** — `--consecutive` reports that the existing runs are
-      worth about two independent samples each, so the next experiment needs `--interval`
-      and several `--tag`ged conditions before any camera is bought
-- [x] `docker-compose.yml` with TLS termination, so the run instructions stop needing a
-      caveat
-- [x] A backup and restore procedure, and a healthcheck that can tell a running container
-      from a serving one
+- **Recognition accuracy depends heavily on enrolment photo quality.**
 
 ## Credits
 
