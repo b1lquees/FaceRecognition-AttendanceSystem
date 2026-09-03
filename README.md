@@ -1,5 +1,5 @@
 # Face Recognition Attendance System
-
+In progress.
 Browser-based attendance capture: a webcam identifies enrolled people and records them
 present, once per day, with arrival and departure times.
 
@@ -50,8 +50,6 @@ that matters.
 - **Anti-spoofing gate.** A liveness model can refuse photographs and screens before
   recognition runs. Ships disabled; calibrate before trusting it.
 - **Audit trail.** Every security-relevant action is logged with who did it and from where.
-- **Responsive interface.** Sidebar on a laptop, drawer on a phone, tables that become
-  cards on narrow screens, and a light/dark theme following the system or your choice.
 - **Desktop mode.** `scripts/recognise_live.py` runs the same recognition in a native
   OpenCV window, for testing without a browser.
 
@@ -158,13 +156,9 @@ enough — the `TOLERANCE` constant in
 [`attendance/recognition.py`](attendance/recognition.py), set to `0.5`.
 
 Lower is stricter: fewer false matches, more failures to recognise someone whose
-appearance has changed. `0.5` is tighter than the `0.6` dlib suggests by default, because
-the two failures are not symmetrical. An unrecognised face is obvious to the person
+appearance has changed. An unrecognised face is obvious to the person
 standing there and costs one 1.5-second retry; the wrong person marked present is a false
 record nobody reading the register would ever spot.
-
-Rows recorded under the older, more forgiving cutoff remain in the history, which is why
-distances between 0.5 and 0.6 appear there and are shown as borderline.
 
 ## Usage
 
@@ -209,14 +203,6 @@ python scripts/build_encodings.py
 | `/admin/enrol` | **admin** | Add or remove a person |
 | `/account/password` | any user | Change your own password |
 
-### The interface
-
-Navigation is a sidebar. It collapses to a button on laptops and tablets and becomes a
-drawer behind a hamburger below 960px, and both remember your choice across pages. The
-theme follows the operating system unless you use the switch at the foot of the sidebar,
-which then takes precedence. Below 700px the record tables are drawn as one card per row
-rather than a table that has to be dragged sideways, keeping match strength and duration
-on screen.
 
 ### Checking in and out
 
@@ -233,9 +219,6 @@ record a five-minute day for someone who walked past the camera shortly after ar
 and would make "already checked in" impossible to report. Checking out before checking in
 reports *not checked in* and records nothing. A missing or unrecognised mode falls back to
 check-in, because an unwanted arrival is correctable and an unwanted departure is worse.
-
-Both times live in the same row, so the `UNIQUE(date, student_id)` index still guarantees
-exactly one record per person per day.
 
 ## Security
 
