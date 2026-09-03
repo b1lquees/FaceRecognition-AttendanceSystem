@@ -636,6 +636,13 @@ and writes everything into `/data`.
 **Mount something there.** Without a volume, `/data` is the container's own writable layer
 and `docker rm` deletes the attendance record along with the container.
 
+> **Use a named volume, not a bind mount.** The container runs as uid 10001, and a named
+> volume is seeded with the ownership `/data` has in the image, so it is writable from the
+> first second. A bind mount is not seeded with anything — `-v ./data:/data` arrives owned
+> by whoever owns the host directory, and unless that is uid 10001 the first write fails
+> with a permission error that looks like a bug in the application. If you need a bind
+> mount anyway, `chown 10001:10001` the host directory before starting the container.
+
 ```bash
 docker build -t attendance .
 ```

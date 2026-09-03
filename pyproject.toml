@@ -26,10 +26,18 @@ dependencies = []
 # gets silently packaged
 packages = ["attendance", "attendance.routes"]
 
-# templates and static files are not .py, so they need naming or they would be left out
-# of a real (non-editable) install
+# templates, stylesheets and the anti-spoofing model are not .py, so they need naming or
+# they would be left out of a real (non-editable) install. The .onnx weights especially:
+# liveness.py resolves them relative to its own __file__, so an install that omits them
+# imports fine and then fails the first time somebody stands in front of the camera. The
+# licence text travels with the weights because Apache 2.0 requires it to.
 [tool.setuptools.package-data]
-attendance = ["templates/*.html", "static/*.css"]
+attendance = [
+    "templates/*.html",
+    "static/*.css",
+    "models/*.onnx",
+    "models/LICENSE-*.txt",
+]
 
 # moved here from pytest.ini -- one less config file at the root. pythonpath is gone on
 # purpose: the tests now import the installed package, so a packaging mistake fails the

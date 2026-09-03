@@ -15,3 +15,7 @@ venv/
 notes.txt
 .github/
 docs/
+# The image runs the application; it does not test it. CI runs the suite from a
+# checkout, and shipping tests/ only adds files to something pushed to a registry.
+tests/
+requirements-dev.txt
