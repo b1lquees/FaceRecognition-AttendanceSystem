@@ -32,10 +32,11 @@
     {% if records %}
     <div class="card-head">
         <span class="card-title">History</span>
-        {# a GET form, not a javascript filter. the previous version hid rows the server
-           had already sent, which stopped being honest once the page became one slice of
-           the archive: searching would have looked through fifty rows and reported
-           nothing found while the match sat on page nine. #}
+        {# a GET form, not a javascript filter. this page shows one slice of the archive,
+           so a client-side filter could only hide rows the server had already sent:
+           searching would look through fifty rows and report nothing found while the
+           match sat on page nine. asking the server searches the whole history, and the
+           query lives in the url, so a search can be linked to and paged through. #}
         <form method="GET" class="search-form">
             <input type="search" name="q" class="search" value="{{ query }}"
                    placeholder="Search name or date...">

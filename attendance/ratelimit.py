@@ -22,11 +22,11 @@ from flask import current_app, jsonify, make_response, render_template, request
 
 # The hard ceiling on how many (bucket, client) counters are kept at once.
 #
-# It is a real ceiling now. It used to be the point at which prune() was called, which is
-# not the same thing at all: prune only drops counters that have gone quiet, so somebody
-# cycling through source addresses -- the exact case this exists for -- kept every one of
-# them alive and the store grew straight past it anyway. Past the number, the scan then
-# ran on every single request and freed nothing, so the limiter became its own cost.
+# A real ceiling, not merely the point at which prune() runs -- the two are not the same
+# thing. prune() only drops counters that have gone quiet, so somebody cycling through
+# source addresses, which is the exact case this exists for, keeps every counter alive. A
+# prune-only limit would therefore be scanned past on every request, free nothing, and let
+# the store grow without bound while charging for the scan.
 #
 # Over the ceiling something live has to go. See enforce_cap().
 MAX_TRACKED_CLIENTS = 10_000

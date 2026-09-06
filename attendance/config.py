@@ -144,9 +144,9 @@ def generate_dev_secret_key():
     DEV_KEY_FILE.write_text(key) # write it to .flask_secret_dev
     print("No FLASK_SECRET_KEY set - generated a development key in .flask_secret_dev")
     return key
-# storing it instead of generating a new key everytime is important flask's session cookie is signed
-# using secret key. if u generated a key evrytime restart server new secret key old session cookie
-# no longer valid user gets logged out
+# the key is written to disk rather than generated on every start because flask signs the session
+# cookie with it: a fresh key on each restart invalidates every cookie already issued, so every
+# open session is dropped each time the dev server reloads.
 
 
 class Config: # base configuration contains settings shared across environment
@@ -272,20 +272,21 @@ class Config: # base configuration contains settings shared across environment
     # through while real people start being refused. There is no universally right value it depends
     # on the camera and the lighting.
     LIVENESS_THRESHOLD = env_float("LIVENESS_THRESHOLD", default=0.0)
-    #  time
+    # --- time ---
     # TIMEZONE is deliberately NOT a setting here, and this note is the sign saying so.
     #
-    # It used to be, and nothing read it. clock.get_timezone() goes to the environment directly, so
-    # the attribute sat here looking authoritative while having no effect whatsoever -- setting
-    # app.config["TIMEZONE"] changed nothing, which is a worse trap than the setting simply not
-    # existing.
+    # It lives in the environment because clock.py is imported by the command-line scripts too, and
+    # those have no application to read config from. One source, read the same way everywhere. An
+    # attribute here would be worse than no setting at all: clock.get_timezone() reads the
+    # environment directly, so the attribute would look authoritative while setting
+    # app.config["TIMEZONE"] changed nothing.
     #
-    # It stays in the environment because clock.py is imported by the command-line scripts too, and
-    # those have no application to read config from. One source, read the same way everywhere. The
-    # variable itself is unchanged and still documented in the README: an IANA zone name
-    # ("Europe/London", "Asia/Karachi"), unset meaning the machine's own. logging INFO because the
-    # audit trail is logged at INFO; raising this to WARNING keeps the errors and throws away the
-    # record of who approved, enrolled or linked whom.
+    # The variable is documented in the README: an IANA zone name ("Europe/London",
+    # "Asia/Karachi"), unset meaning the machine's own.
+
+    # --- logging ---
+    # INFO because the audit trail is logged at INFO; raising this to WARNING keeps the errors and
+    # throws away the record of who approved, enrolled or linked whom.
     LOG_LEVEL = os.environ.get("LOG_LEVEL", "INFO")
     # Unset means stderr only, which is what a container or systemd wants -- writing only to a file
     # assumes something is there to read it. Set a path to also keep a rotating copy on disk.

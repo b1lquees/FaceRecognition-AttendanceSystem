@@ -2,9 +2,9 @@
 
     python init_db.py
 
-This replaces `python db.py`, which stopped being runnable directly when db.py moved
-into the attendance package. create_user.py calls the same function, so running that is
-enough on a fresh setup -- this script exists for when you want to create the schema
+db.py lives inside the attendance package and is imported, not run, so this is the entry
+point for creating the schema from a shell. create_user.py calls the same function, so
+running that is enough on a fresh setup -- this script is for when you want the schema
 without also creating an account.
 """
 

@@ -42,15 +42,16 @@ def duration(time_in, time_out):
 
 # --- the match column ---------------------------------------------------------------
 #
-# Both templates used to do this arithmetic inline, dividing by a hardcoded 0.6 and
-# comparing against a hardcoded 0.4 and 0.5. Changing TOLERANCE left all three behind:
-# the bar filled against a cutoff that no longer applied and the colours described bands
-# that no longer existed, on two pages, silently.
+# The width of the bar and the name of the band are derived here, once, rather than inline
+# in each template. Two pages render this column, so doing the arithmetic in the templates
+# would spread the cutoff across three places at once; miss one when TOLERANCE changes and
+# the bar fills against a cutoff that is not in force while the colours name bands that do
+# not exist -- wrong on a page nobody would think to re-check.
 #
 # The bands are fractions of the tolerance rather than fixed distances, because a
 # distance only means anything next to the cutoff -- 0.45 is a comfortable match at a
-# tolerance of 0.6 and a near miss at 0.5. At the original 0.6 these two work out to
-# exactly the 0.40 and 0.50 the pages used to name.
+# tolerance of 0.6 and a near miss at 0.5. At a tolerance of 0.6 these two work out to
+# exactly 0.40 and 0.50.
 STRONG_FRACTION = 2 / 3
 FAIR_FRACTION = 5 / 6
 
@@ -93,8 +94,8 @@ def match_strength(distance, tolerance):
 def short_time(value):
     """The wall-clock part of a timestamp, "09:15", for a table cell.
 
-    This used to be value[:5], which was correct while times were stored as "09:15:42"
-    and returns "2026-" now that they are full timestamps. Parsing rather than slicing is
-    what makes it independent of the stored format.
+    Parses the value rather than slicing its first five characters, which keeps it
+    independent of the stored format: against the full ISO-8601 timestamps actually
+    stored, value[:5] returns "2026-".
     """
     return clock_time(value) or MISSING

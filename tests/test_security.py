@@ -127,9 +127,9 @@ def test_each_application_gets_its_own_counters(client, csrf, app):
 
 # --- user enumeration by timing -------------------------------------------------
 
-# a missing username used to return immediately while a real one paid for a full scrypt
-# comparison. that difference is measurable over a network and tells an attacker which
-# usernames exist. both paths now do the same work.
+# both paths have to do the same work. returning immediately for a missing username while
+# a real one pays for a full scrypt comparison leaves a difference that is measurable over
+# a network, and it tells an attacker which usernames exist.
 def test_unknown_and_known_usernames_take_a_similar_time(temp_db):
     create_user("realuser", "the-real-password")
 
@@ -222,9 +222,10 @@ def test_a_failed_login_leaves_the_session_alone(client, csrf):
 
 # --- how long a session lasts -------------------------------------------------------
 #
-# This was always bounded -- Flask defaults it to 31 days and enforces it server-side when
-# it unseals the cookie -- so the value was being chosen by a framework default nobody had
-# read. Pinning it is mostly about the choice being visible.
+# Flask bounds this whether or not it is set -- it defaults to 31 days and enforces it
+# server-side when it unseals the cookie -- so setting it explicitly is not what makes
+# sessions expire. It is about the length being a decision somebody made and can find,
+# rather than a framework default nobody has read.
 
 def test_a_session_lasts_a_week():
     assert Config.PERMANENT_SESSION_LIFETIME == timedelta(days=7)
@@ -645,11 +646,11 @@ def test_the_forwarded_address_reaches_the_limiter_intact(temp_db, csrf):
 
 # --- the ceiling on how many counters are kept ---------------------------------------
 #
-# MAX_TRACKED_CLIENTS used to be the number at which prune() got called, which is not the
-# same thing as a ceiling. prune() only drops counters that have gone quiet, so a client
-# cycling through source addresses -- the one case the ceiling exists for -- kept every
-# one of theirs alive and the store grew straight past it. Past that number the scan then
-# ran on every single request and freed nothing, so the limiter became its own cost.
+# MAX_TRACKED_CLIENTS has to be an enforced ceiling, not merely the number at which
+# prune() gets called. prune() only drops counters that have gone quiet, so a client
+# cycling through source addresses -- the one case the ceiling exists for -- keeps every
+# one of theirs alive: past that number the scan would run on every request, free nothing,
+# and let the store grow while charging for the scan.
 
 def fill_store(store, count, now, bucket="login"):
     for i in range(count):

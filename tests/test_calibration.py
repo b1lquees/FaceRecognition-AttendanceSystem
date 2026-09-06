@@ -157,11 +157,11 @@ def test_every_measured_score_is_a_candidate_threshold(calib):
 
 # --- what gets written to disk ------------------------------------------------------
 
-# The bug this guards: report() sorted its argument in place before save() ever saw it,
-# so the files recorded a sorted list whatever save() intended. Capture order is the only
-# thing that can answer whether consecutive frames resemble each other, which is the
-# question behind judging several frames together instead of one at a time. Sorting threw
-# it away silently -- the file looked entirely reasonable.
+# The saved file has to keep capture order, so report() must not sort its argument in
+# place on the way through. Capture order is the only thing that can answer whether
+# consecutive frames resemble each other, which is the question behind judging several
+# frames together instead of one at a time -- and a sorted file loses that while still
+# looking entirely reasonable.
 def test_the_saved_file_keeps_the_order_the_camera_produced(calib, tmp_path, monkeypatch):
     monkeypatch.setattr(calib, "SCRIPTS_DIR", tmp_path)
     jumbled = [3.0, -1.0, 2.0, -4.0]

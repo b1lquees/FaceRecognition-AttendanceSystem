@@ -40,10 +40,7 @@ def register_student(name):
     return student_id
 
 def check_in(name, confidence):
-    """Record someone arriving. Returns "checked_in" or "already_in".
-
-    Was called mark_attendance() when arriving was the only thing recorded.
-    """
+    """Record someone arriving. Returns "checked_in" or "already_in"."""
     student_id = get_student_id(name)
     if student_id is None:
         student_id = register_student(name)  # auto-register if this name has never been seen
@@ -56,16 +53,16 @@ def check_in(name, confidence):
     today = local_date(moment)
     arrived = stamp(moment)
 
-    # this used to be a SELECT to check for an existing row, then an INSERT if there
-    # wasn't one. the problem with that is the gap between the two statements: the camera
-    # posts a frame every 1.5s, and two requests being handled at the same time could both
-    # run the SELECT, both see nothing, and both INSERT -- two records for the same day.
+    # one statement rather than a SELECT for an existing row followed by an INSERT if there
+    # wasn't one. the camera posts a frame every 1.5s, so two requests for the same person
+    # can be in flight at once, and across two separate statements both can run the SELECT,
+    # both see nothing, and both INSERT -- two records for the same day.
     #
-    # OR IGNORE closes that gap by making it a single statement. it leans on the UNIQUE
+    # OR IGNORE makes the check and the write one indivisible step. it leans on the UNIQUE
     # index on (date, student_id) created in db.py: if a row for this person on this day
-    # already exists, sqlite silently skips the insert instead of raising.
-    # the ? placeholders are still doing the same job as before -- they protect against
-    # sql injection and handle the quoting/formatting of the values automatically.
+    # already exists, sqlite skips the insert instead of raising.
+    # the ? placeholders protect against sql injection and handle the quoting and
+    # formatting of the values automatically.
     cursor.execute(
         "INSERT OR IGNORE INTO attendance (student_id, date, time_in, confidence) "
         "VALUES (?, ?, ?, ?)",
@@ -144,10 +141,9 @@ PAGE_SIZE = 50
 def search_filter(query):
     """Build the WHERE clause for a search over names and dates.
 
-    Both, because the previous javascript filter matched anything in the row -- searching
-    "2026-08" to see one month was a thing people could do, and moving the search into
-    sql quietly took it away. The date column is text in "YYYY-MM-DD" form, so a partial
-    date works as a prefix without any date parsing.
+    Both, because searching only names would lose a use people reach for immediately:
+    typing "2026-08" to see one month. The date column is text in "YYYY-MM-DD" form, so a
+    partial date works as a prefix without any date parsing.
 
     % and _ are wildcards in LIKE, so a search for "100%" would otherwise match every
     row. They are escaped, and ESCAPE names the escape character explicitly because

@@ -17,7 +17,7 @@ from ..liveness import LivenessUnavailable, is_live
 from ..ratelimit import client_key, rate_limit
 from ..recognition import DETECTION_SCALE, get_known_encodings, identify_face
 
-# used to organiseflask routes into separate modules
+# a blueprint keeps the recognition routes in their own module rather than one flat app file
 recognition_bp = Blueprint("recognition", __name__)
 
 # Per frame, not per person: each face costs an encoding and a liveness inference, and a
@@ -123,9 +123,10 @@ def result(status, name=None, distance=None, marked=False):
         not_linked     - personal mode, and this account is not linked to a person
         mismatch       - personal mode, and the face is not the signed-in person
 
-    Previously the page string-matched on the name, where "No face detected" was both a
-    name and a control signal. That works until someone is actually called that, and it
-    left no room for outcomes that have no name to report.
+    The outcome is its own field so the page never has to string-match on the name. A
+    sentinel like "No face detected" in the name field would be both a name and a control
+    signal: it breaks the moment someone is actually called that, and leaves nowhere to
+    report an outcome that has no name attached.
     """
     return jsonify({
         "status": status,
@@ -228,8 +229,8 @@ def recognize():
     rgb_frame = np.ascontiguousarray(frame[:, :, ::-1])
 
     # Detect on a shrunk copy: the detector is the slow part and does not need the detail.
-    # This was running at full resolution while the desktop viewer had always downscaled,
-    # so the web path was doing roughly four times the work for the same answer.
+    # At DETECTION_SCALE the frame carries a fraction of the pixels for the same answer, and
+    # the desktop viewer downscales by the same factor so both paths see the same input.
     small = cv2.resize(rgb_frame, (0, 0), fx=DETECTION_SCALE, fy=DETECTION_SCALE)
     small_locations = face_recognition.face_locations(small)  # (top, right, bottom, left) per face
 

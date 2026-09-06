@@ -37,8 +37,8 @@ services:
 
     # Answers a question gunicorn cannot: whether this worker has a database to serve
     # from. `--timeout 60` in the Dockerfile already reaps a worker wedged mid request, so
-    # a *hung* worker is covered and was covered before this existed. The gap is a
-    # container that is up, responsive, and useless -- brought up without anyone running
+    # a *hung* worker is gunicorn's business rather than this check's. The gap it leaves is
+    # a container that is up, responsive, and useless -- brought up without anyone running
     # init_db.py, so every page 500s on its first query while the process looks perfect.
     #
     # python rather than curl because the slim image ships neither curl nor wget, and
@@ -75,8 +75,9 @@ services:
 
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # certificates and the internal CA's own key. Losing this volume means every kiosk
-      # that trusted the old CA has to trust a new one, so it is named, not anonymous.
+      # certificates and the internal CA's own key. A named volume rather than an
+      # anonymous one because losing it regenerates the CA, and every kiosk that trusted
+      # the previous one then has to be told to trust the replacement by hand.
       - caddy-data:/data
       - caddy-config:/config
 

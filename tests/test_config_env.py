@@ -104,7 +104,8 @@ def test_a_malformed_whole_number_is_refused(monkeypatch, value):
 
 # What this is for: in a container the source lives in an image that gets rebuilt and
 # thrown away, while the database, the photos and the encoding cache have to outlive it.
-# All three used to be pinned next to the source with no way to say otherwise.
+# Each of the three therefore has to be placeable from the environment rather than pinned
+# next to the source.
 def test_a_path_comes_from_the_environment_when_set(monkeypatch, tmp_path):
     monkeypatch.setenv("A_PATH", str(tmp_path / "somewhere.db"))
 
@@ -160,8 +161,8 @@ def test_an_unset_environment_is_development(no_env):
     assert get_config() is DevelopmentConfig
 
 
-# FLASK_ENV is the name this used to use, and dropping it outright would fail in the
-# worst direction: a deployment that still sets it would come back up on
+# FLASK_ENV is accepted as an alias because dropping it would fail in the worst
+# direction: a deployment that sets only that name would come back up on
 # DevelopmentConfig, where a missing secret key is generated instead of fatal and the
 # session cookie stops being marked HTTPS-only.
 def test_the_old_flask_env_name_still_selects_production(no_env, monkeypatch):

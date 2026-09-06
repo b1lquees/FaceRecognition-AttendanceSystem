@@ -1,10 +1,10 @@
 """Turning a detected face into a name.
 
-recognise_live.py used to open the encoding cache at import time, as a module-level side
-effect, and app.py imported the resulting dictionary directly. Two problems came from
-that: importing anything at all read a file from disk, and the web app's set of known
-faces was frozen for the life of the process, so enrolling someone new meant restarting
-the server. Loading is now lazy, and reload_known_encodings() re-reads the file.
+The encoding cache is opened lazily, on first use, and reload_known_encodings() re-reads
+it. Opening it at import time as a module-level side effect would be less code and costs
+two things worth more than that: importing this module at all would read a file from disk,
+and the set of known faces would be frozen for the life of the process, so enrolling
+someone new would mean restarting the server.
 """
 
 import os
@@ -18,11 +18,10 @@ from .config import env_path
 # recognition.py lives in attendance/, so the project root is one level up
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# .npz, not the .pkl this used to be. Unpickling runs arbitrary code by design, so the
-# cache file was effectively executable: anything able to write it could run code as the
-# server. That was an acceptable risk while only a shell user could produce it. Enrolment
-# from the browser means the web application now writes this file, and a format that
-# executes on load is the wrong shape for that entirely.
+# .npz rather than pickle. Unpickling runs arbitrary code by design, which would make this
+# cache effectively an executable: anything able to write the file could run code as the
+# server. Enrolment from the browser means the web application writes this file in response
+# to a request, so a format that executes on load is the wrong shape for it entirely.
 #
 # Read once, at import, rather than on every call the way get_db_path() does. The
 # difference is who overrides it: the database path is redirected by tests that set the
@@ -53,9 +52,10 @@ ENCODING_LENGTH = 128  # dlib's face encoder always produces a 128-d vector
 # a half. Two similar-looking people confusing the matcher is the specific thing this
 # guards against.
 #
-# Rows already in the database were recorded under the old cutoff, so distances between
-# 0.5 and 0.6 exist in the history and will now show as borderline in the match column.
-# They are not wrong -- they were accepted under the rule in force at the time.
+# The value is a policy rather than a property of the data: each row keeps the distance it
+# was accepted at, so tightening the cutoff leaves history containing distances the current
+# rule would reject. Those rows show as borderline in the match column and are not wrong --
+# they were accepted under the rule in force when they were recorded.
 TOLERANCE = 0.5
 
 # Face *detection* is the expensive step and it does not need full resolution, so frames
@@ -153,14 +153,14 @@ def get_known_encodings():
     """The loaded encodings, re-read whenever the file on disk has changed underneath.
 
     The re-read is the point, and it is about running more than one worker. This cache is
-    per process and the deployment runs two of them (see the Dockerfile), so enrolling
-    somebody updated the encodings in whichever worker happened to serve that request and
-    left the other holding the old set until a restart. Frames arrive every 1.5s and are
-    spread across both, so a newly enrolled person was recognised in roughly half of them
-    -- which looks like bad recognition rather than a stale cache, and is the harder kind
-    of bug to be told about. Removal was the same fault pointing somewhere worse: the
-    entire purpose of un-enrolling somebody is to stop recognising them, and one worker
-    carried on doing it.
+    per process and the deployment runs two of them (see the Dockerfile), so an enrolment
+    only writes through whichever worker served that request. Without the re-read the
+    other worker holds its own set until a restart, and because frames arrive every 1.5s
+    and are spread across both, a newly enrolled person would be recognised in roughly
+    half of them -- which reads as poor recognition rather than a stale cache, and so is
+    the kind of fault nobody reports usefully. Removal is the same problem pointing
+    somewhere worse: the entire purpose of un-enrolling somebody is to stop recognising
+    them, and a worker with a stale cache carries on doing it.
 
     Checking every call rather than on a timer because a stat() is microseconds against
     the ~1.2s recognising a frame costs. At that ratio it is free, and it needs no
@@ -179,9 +179,9 @@ def get_known_encodings():
 def reload_known_encodings():
     """Force a re-read, e.g. immediately after someone has just been enrolled.
 
-    Now that get_known_encodings() notices the file changing on its own, this is no longer
-    what makes an enrolment visible -- it is what makes it visible in this process without
-    waiting for the next stat, and it is what the command-line scripts call. Clearing the
+    get_known_encodings() notices the file changing on its own, so this is not what makes
+    an enrolment visible -- it makes it visible in this process immediately rather than at
+    the next stat, and it is the entry point the command-line scripts call. Clearing the
     stamp as well as the encodings matters: leaving a stale stamp behind would make the
     very next read decide the file had changed and load it a second time.
     """

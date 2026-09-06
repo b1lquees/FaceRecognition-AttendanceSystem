@@ -46,14 +46,14 @@ def template_class_names(text):
     """Class names from attributes that are entirely literal.
 
     Attributes containing Jinja are skipped rather than guessed at, and that restraint is
-    the point. A first attempt tried to extract the literals out of expressions and was
-    wrong in two ways at once: `class="{{ 'active' if active_page == 'today' }}"` yielded
-    `today`, which is a value being compared and not a class at all, and
-    `class="flash flash-{{ category }}"` yielded `flash-`, half of a name assembled at
-    runtime. Both produced confident failures about classes that were never referenced.
+    the point. Pulling the literals out of an expression gets it wrong in both directions:
+    `class="{{ 'active' if active_page == 'today' }}"` yields `today`, a value being
+    compared rather than a class at all, and `class="flash flash-{{ category }}"` yields
+    `flash-`, half of a name assembled at runtime. Either would fail the test confidently
+    over a class nobody ever referenced, and a check that cries wolf gets deleted.
 
-    Skipping them costs little. The bug this test exists to catch -- a page asking for
-    `.card-body`, which did not exist -- was a plain static attribute.
+    Skipping them costs little, because the mistake worth catching -- a page asking for a
+    class the stylesheet does not define -- is written as a plain static attribute.
     """
     names = set()
     for value in re.findall(r'class="([^"]*)"', text):
@@ -63,12 +63,12 @@ def template_class_names(text):
     return names
 
 
-# --- the rule that was missed ------------------------------------------------------
+# --- the hidden attribute ----------------------------------------------------------
 
-# The regression guard for the camera overlay. [hidden] { display: none } is a user-agent
-# rule, and any author rule setting display beats it, so a class with `display` silently
-# defeats the attribute. This normalisation is what puts the attribute back in charge, and
-# deleting it would reintroduce the bug invisibly.
+# What keeps the camera overlay hideable. [hidden] { display: none } is a user-agent rule,
+# and any author rule setting display beats it, so a class with `display` defeats the
+# attribute without any sign of it. The normalisation checked here is what puts the
+# attribute back in charge, so removing it would break hiding on every page at once.
 def test_the_hidden_attribute_is_normalised():
     match = re.search(r"\[hidden\]\s*\{([^}]*)\}", CSS_WITHOUT_COMMENTS)
 

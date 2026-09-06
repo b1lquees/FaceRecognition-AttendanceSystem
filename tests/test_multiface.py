@@ -40,8 +40,8 @@ def sees(monkeypatch):
 
 # --- several people at once -------------------------------------------------------
 
-# the bug this fixes: only the first face was ever looked at, so at a shared camera the
-# second person in shot was silently ignored while the desktop viewer handled everyone
+# every face in the frame has to be considered, not just the first one found: at a shared
+# camera the second person in shot would otherwise be ignored without any sign of it
 def test_everyone_in_the_frame_is_checked_in(client, login, csrf, frame, sees):
     login()
     sees("Alice", "Bob", "Priya")

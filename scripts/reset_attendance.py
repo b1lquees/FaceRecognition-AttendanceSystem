@@ -15,9 +15,9 @@ from attendance.db import connect  # uses ATTENDANCE_DB if set, else attendance.
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    # a positional argument rather than a name baked into the source. this script used to
-    # have "Bilquees" hardcoded, which made it useless to anyone else and a trap for
-    # anyone who ran it expecting a prompt.
+    # a positional argument rather than a name baked into the source: a hardcoded name
+    # makes the script useless to anyone else, and a trap for anyone who runs it expecting
+    # to be asked who they mean.
     parser.add_argument("name", help="the enrolled person whose records to delete")
     parser.add_argument(
         "--date",

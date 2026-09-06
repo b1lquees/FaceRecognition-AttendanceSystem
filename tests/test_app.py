@@ -10,9 +10,9 @@ LOGIN_PATH = "/login"
 
 # --- authentication gates -------------------------------------------------------
 
-# /recognize is the only route that writes to the database. it used to be reachable
-# without a session at all, which meant anyone who could reach the server could mark
-# attendance. this test is the regression guard for that.
+# every route here needs a session, and /recognize matters most of the lot: it is the only
+# one that writes to the database, so leaving it open would let anyone who can reach the
+# server mark attendance.
 @pytest.mark.parametrize(
     "path",
     [
@@ -269,8 +269,8 @@ def test_a_marked_record_appears_on_the_today_page(client, login):
 
 # --- /recognize input handling --------------------------------------------------
 
-# every one of these used to raise an unhandled exception and return a 500 with a
-# stack trace; they should all be clean 400s
+# malformed input is a client mistake, not a server fault: each of these must come back as
+# a clean 400 rather than an unhandled exception rendered as a 500 with a stack trace
 @pytest.mark.parametrize(
     "payload",
     [

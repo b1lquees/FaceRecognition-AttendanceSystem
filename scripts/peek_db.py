@@ -15,11 +15,11 @@ def main():
     parser.add_argument("--name", help="only this person (partial names work)")
     args = parser.parse_args()
 
-    # goes through get_all_attendance() rather than writing its own SELECT. the previous
-    # version had its own copy of the query and referenced attendance.time, which stopped
-    # existing when check-out was added and the column became time_in -- so this script
-    # broke and nothing noticed, because no test runs it. Sharing the query means the
-    # schema can only drift in one place.
+    # goes through get_all_attendance() rather than writing its own SELECT. a private copy
+    # of the query would name columns this script does not otherwise touch, so a schema
+    # change -- time becoming time_in when check-out was added, say -- would break it
+    # without breaking anything the tests exercise. Sharing the query means the schema can
+    # only drift in one place.
     rows = get_all_attendance(query=args.name or "")
 
     if not rows:

@@ -12,9 +12,9 @@ main_bp = Blueprint("main", __name__)
 
 @main_bp.route("/")
 def home():
-    # "/" used to return the string "hello world". sending people to today's register
-    # instead makes the root url useful: it is what someone actually wants to see, and
-    # anyone not logged in is bounced to the login page by that route's own guard.
+    # the root url redirects to today's register rather than serving a landing page of
+    # its own: the register is what someone opening the site actually wants, and anyone
+    # not logged in is bounced to the login page by that route's own guard.
     return redirect(url_for("records.attendance_today"))
 
 
@@ -45,7 +45,7 @@ def healthz():
 
     What it adds over gunicorn's own supervision is narrow and worth being exact about.
     `--timeout 60` in the Dockerfile already kills and replaces a worker wedged mid
-    request, so a hung worker is handled and was handled before this existed. What the
+    request, so a hung worker is gunicorn's problem rather than this check's. What the
     arbiter cannot see is a worker that is perfectly responsive and has nothing to answer
     *with*: /data unmounted, the volume gone, or -- the likeliest of the three by a wide
     margin -- a stack brought up without anyone running init_db.py, where every page

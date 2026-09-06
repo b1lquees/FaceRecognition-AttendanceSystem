@@ -29,10 +29,10 @@ def test_duration_between_two_times(time_in, time_out, expected):
     assert duration(at(time_in), at(time_out)) == expected
 
 
-# THE test this change exists for. On the morning UK clocks go forward, 00:30 to 03:30
-# reads as three hours on the wall but is two hours of elapsed time. Subtracting the
-# clock faces -- which is what the old naive strings forced -- reports the wrong answer,
-# and the offsets are what make the right one available.
+# The case that decides how timestamps have to be stored. On the morning UK clocks go
+# forward, 00:30 to 03:30 reads as three hours on the wall but is two hours of elapsed
+# time. Subtracting clock faces gives the wrong answer, and only a stored offset makes the
+# right one available.
 def test_a_shift_spanning_a_clock_change_is_measured_in_real_time():
     before_the_change = "2026-03-29T00:30:00+00:00"  # GMT
     after_the_change = "2026-03-29T03:30:00+01:00"   # BST, one hour later on the clock
@@ -68,8 +68,9 @@ def test_duration_survives_malformed_input():
 
 # --- the wall-clock part ---------------------------------------------------------
 
-# this used to be value[:5], which was right for "09:15:42" and returns "2026-" for a
-# full timestamp. parsing rather than slicing is what makes it survive the format change.
+# parsing rather than slicing: value[:5] happens to work on a bare "09:15:42" and returns
+# "2026-" for the full timestamps actually stored, so the format is what must be read, not
+# assumed.
 def test_short_time_shows_the_wall_clock():
     assert short_time(at("09:15:42")) == "09:15"
 
@@ -109,7 +110,7 @@ def test_the_bands_match_the_numbers_the_pages_used_to_hardcode():
         (0.34, "good"),
         (0.41, "good"),
         (0.42, "weak"),   # past fair, still recorded
-        (0.55, "weak"),   # recorded under the older, more forgiving cutoff
+        (0.55, "weak"),   # beyond today's cutoff: a row recorded under a looser one
     ],
 )
 def test_quality_names_the_band(distance, expected):

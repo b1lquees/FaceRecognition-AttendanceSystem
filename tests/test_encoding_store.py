@@ -110,11 +110,12 @@ def test_saving_over_an_existing_cache_replaces_it(tmp_path):
 
 # --- noticing that the file changed underneath us -----------------------------------
 #
-# The cache is per process and the deployment runs two workers, so enrolling somebody used
-# to update the encodings in whichever worker served that request and leave the other one
-# holding the old set until a restart. Frames arrive every 1.5s and are spread across both,
-# so a newly enrolled person was recognised in about half of them -- which reads as bad
-# recognition rather than a stale cache, and is the harder kind of fault to be told about.
+# The cache is per process and the deployment runs two workers, so an enrolment only
+# writes through whichever worker served that request. Unless the other worker notices the
+# file changing it keeps its own set until a restart, and since frames arrive every 1.5s
+# and are spread across both, a newly enrolled person would be recognised in about half of
+# them -- which reads as bad recognition rather than a stale cache, and is the harder kind
+# of fault to be told about.
 
 def test_a_change_written_by_another_process_is_picked_up(storage):
     """What the *other* worker sees: the file changed, and nobody told it.

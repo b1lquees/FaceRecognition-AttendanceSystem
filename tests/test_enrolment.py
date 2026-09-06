@@ -266,9 +266,9 @@ def test_posting_without_a_csrf_token_is_refused(client, login, storage, temp_db
 # --- enrolment quality ---------------------------------------------------------------
 #
 # A set of near-identical photos uploads without complaint, reports "5 photos added", and
-# then fails to recognise the person the moment their lighting changes. Nothing in the
-# interface used to say so, and the failure arrives days later looking like a broken
-# recogniser rather than a thin enrolment.
+# then fails to recognise the person the moment their lighting changes. Unless the
+# interface measures the spread and says so at upload time, the failure surfaces days
+# later looking like a broken recogniser rather than a thin enrolment.
 
 def test_spread_of_a_single_encoding_is_zero():
     assert spread([np.zeros(128)]) == 0.0
@@ -408,9 +408,9 @@ def test_the_lock_excludes_a_second_holder(temp_db, storage):
     assert second_got_in.is_set()  # and did get in afterwards, so this was a wait not a hang
 
 
-# enrol() itself, not just the lock primitive it calls. A real face photo is not needed to
-# exercise the part that was broken -- the read-modify-write around the encoder, which had
-# no exclusion at all -- and CI has no face photos, so the encoder is stubbed out.
+# enrol() itself, not just the lock primitive it calls. The part that needs covering is
+# the read-modify-write around the encoder, which a real face photo does nothing to
+# exercise, and CI has no face photos anyway, so the encoder is stubbed out.
 def test_two_enrolments_at_once_do_not_lose_one(temp_db, storage, monkeypatch):
     save_known_encodings({}, recognition.ENCODINGS_FILE)
 

@@ -1,11 +1,12 @@
 """Adding a person to the system from the browser.
 
-Enrolling used to mean shell access: drop photos into known_faces/, run
-build_encodings.py, restart the server. That is fine for the person who built the thing
+The alternative to this module is shell access -- drop photos into known_faces/, run
+build_encodings.py, restart the server -- which is workable for whoever built the system
 and useless for anyone running it.
 
-Everything here treats its input as hostile, because it now is. Before this, the only way
-to get a file into known_faces/ was to already be on the machine.
+Everything here treats its input as hostile, because it is: these names and photos arrive
+over HTTP, so nothing about them can be assumed to come from someone with an account on
+the machine.
 """
 
 import re

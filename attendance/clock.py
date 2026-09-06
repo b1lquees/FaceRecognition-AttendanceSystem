@@ -1,18 +1,19 @@
 """What time it is, and how times are written down.
 
-Every timestamp used to come from datetime.now() -- naive local time, stored as
-"09:15:42" with nothing recording which offset that was. Three things were wrong with
-that, and they get worse the longer the system runs:
-
-  - a row is ambiguous. 09:15 in June and 09:15 in December are different instants in
-    any place that observes daylight saving, and nothing said which was which.
-  - moving the server to another machine, or another country, silently changed what new
-    rows meant relative to old ones.
-  - a duration spanning a clock change was wrong by an hour, in whichever direction.
-
-Timestamps are now ISO-8601 with the offset attached: "2026-08-12T09:15:42+05:00". That
-is an exact instant, readable as wall-clock time without conversion, and sortable as a
+Timestamps are ISO-8601 with the offset attached: "2026-08-12T09:15:42+05:00". That is
+an exact instant, readable as wall-clock time without conversion, and sortable as a
 string within a single zone.
+
+The cheaper option -- datetime.now(), stored naive as "09:15:42" -- is not used, because
+without a recorded offset it is wrong in three ways that get worse the longer the system
+runs:
+
+  - a row would be ambiguous. 09:15 in June and 09:15 in December are different instants
+    in any place that observes daylight saving, and nothing would say which was which.
+  - moving the server to another machine, or another country, would silently change what
+    new rows meant relative to the ones already stored.
+  - a duration spanning a clock change would be wrong by an hour, in whichever
+    direction.
 
 The `date` column stays the LOCAL calendar date, deliberately. "Who was here on the 11th"
 is a local question, and the one-row-per-person-per-day rule is a statement about local
@@ -78,8 +79,9 @@ def clock_time(value):
 def combine(date_text, time_text, zone=None):
     """Build a timestamp from a separate date and "HH:MM:SS", in the given zone.
 
-    Used by the migration to give the old naive rows an offset. Returns None if either
-    part is unreadable, so a bad row is left alone rather than replaced with a guess.
+    Used by the migration in db.py that attaches an offset to naive stored rows. Returns
+    None if either part is unreadable, so a bad row is left alone rather than replaced
+    with a guess.
     """
     try:
         naive = datetime.strptime(f"{date_text} {time_text}", "%Y-%m-%d %H:%M:%S")

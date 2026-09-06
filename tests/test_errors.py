@@ -5,9 +5,10 @@ from attendance.enrolment import MAX_PHOTO_BYTES, MAX_PHOTOS, MAX_REQUEST_BYTES
 
 # --- the limits have to agree with each other -----------------------------------
 
-# The bug this file exists for. The app-wide cap is sized for a webcam frame (8 MB) while
-# the enrolment form invites ten photos of 5 MB. The form was promising 50 MB through an
-# 8 MB door, and three ordinary phone photos were enough to hit it.
+# The two limits are set for different reasons and have to be checked against each other:
+# the app-wide cap is sized for a webcam frame (8 MB) while the enrolment form invites ten
+# photos of 5 MB. If the cap were the smaller of the two, the form would be promising
+# 50 MB through an 8 MB door and three ordinary phone photos would be enough to hit it.
 def test_the_enrolment_cap_covers_what_the_form_invites():
     assert MAX_REQUEST_BYTES >= MAX_PHOTOS * MAX_PHOTO_BYTES
 

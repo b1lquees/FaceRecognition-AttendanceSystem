@@ -481,8 +481,9 @@ a {
     right: 18px;
 }
 
-/* where the sidebar used to start. it only appears once the sidebar is hidden, which is
-   the rule further down the file */
+/* sits where the sidebar's own edge is, so the control does not appear to move when the
+   sidebar goes away. only shown once the sidebar is hidden -- the rule further down the
+   file */
 .nav-float {
     display: none;
     left: 18px;

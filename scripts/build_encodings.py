@@ -13,11 +13,12 @@ from attendance.recognition import ENCODINGS_FILE, save_known_encodings
 # each person will have their own folder so allows u to store multiple photos for each individual
 #
 # BOTH paths are imported rather than written out again here, and the input one is the
-# part that matters. This used to read PROJECT_ROOT / "known_faces" while writing the
-# env-aware ENCODINGS_FILE, and that asymmetry was the bug: point KNOWN_FACES_DIR at
-# persistent storage -- which is exactly what the README tells a deployment to do -- and
-# this script would scan the empty directory next to the source and write the resulting
-# empty cache over the real one. A rebuild that deletes everything it was meant to rebuild.
+# part that matters. Hardcoding the input as PROJECT_ROOT / "known_faces" while writing
+# the env-aware ENCODINGS_FILE would make the two halves disagree: point KNOWN_FACES_DIR
+# at persistent storage -- which is exactly what the README tells a deployment to do --
+# and this script would scan the empty directory next to the source and write the
+# resulting empty cache over the real one. A rebuild that deletes everything it was meant
+# to rebuild.
 knownfaces_dir = KNOWN_FACES_DIR
 cache_file = ENCODINGS_FILE
 
@@ -72,11 +73,11 @@ def main():
         print(f"Refusing to overwrite {cache_file} with an empty cache.")
         raise SystemExit(1)
 
-    # now save everything. this used to pickle the dictionary straight to disk; it goes
-    # through save_known_encodings() so that the format lives in one place, and so that
-    # this script and the enrolment page cannot drift into writing different things.
-    # the cache is a .npz now rather than a pickle -- see attendance/recognition.py for
-    # why a file the web application writes must not be one that executes on load.
+    # now save everything, through save_known_encodings() rather than writing the file
+    # here: the format then lives in one place, so this script and the enrolment page
+    # cannot drift into writing different things.
+    # the cache is a .npz rather than a pickle -- see attendance/recognition.py for why a
+    # file the web application writes must not be one that executes on load.
     #
     # Under the same lock the enrolment page uses. This is a full overwrite, so running it
     # while the server is up would otherwise be able to land on top of somebody's

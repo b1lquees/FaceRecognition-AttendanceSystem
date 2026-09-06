@@ -96,8 +96,9 @@ def child_env(temp_db):
     return dict(os.environ)
 
 
-# THE test for the bug this file was written after. peek_db.py ran its own SELECT against
-# a column that no longer existed; nothing short of running it would have shown that.
+# peek_db.py writes its own SELECT rather than going through attendance/, so it can fall
+# out of step with the schema. Nothing short of running it against a real database shows
+# that, which is why this executes the script instead of importing it.
 def test_peek_db_queries_a_real_database(child_env):
     from attendance.attendance_db import check_in
 
@@ -187,8 +188,8 @@ def test_reset_attendance_deletes_the_records(child_env):
     assert get_todays_attendance() == []
 
 
-# it takes the name on the command line. the version before this one had "Bilquees" written
-# into it, so anybody else running it deleted nothing and was told it had worked.
+# it takes the name on the command line, and deletes for that name only. a name fixed in
+# the source would delete nothing for anybody else while still reporting success.
 def test_reset_attendance_only_touches_the_person_named(child_env):
     from attendance.attendance_db import check_in, get_todays_attendance
 
@@ -240,15 +241,15 @@ def test_reset_attendance_needs_confirmation(child_env):
 # --- build_encodings.py ---------------------------------------------------------------
 #
 # The one script that can destroy data. It rebuilds the whole cache from the photos on
-# disk, so it is a full overwrite -- and it used to read a hardcoded PROJECT_ROOT /
-# "known_faces" while writing the env-aware ENCODINGS_FILE. Point KNOWN_FACES_DIR at
-# persistent storage, as the README tells a deployment to, and the rebuild scanned the
-# empty directory beside the source and wrote the empty result over the real cache.
+# disk, so it is a full overwrite, and both halves have to resolve their paths the same
+# way. If it read a hardcoded PROJECT_ROOT / "known_faces" while writing the env-aware
+# ENCODINGS_FILE, then pointing KNOWN_FACES_DIR at persistent storage -- as the README
+# tells a deployment to -- would have it scan the empty directory beside the source and
+# write the empty result over the real cache.
 #
-# Nothing caught it because the checks above are static: this script has no argument
-# parser, so it cannot be run with --help, and running it for real used to mean rebuilding
-# the developer's own cache. Pointing all three paths at a tmp_path is what makes it safe
-# to actually execute.
+# The static checks used elsewhere in this file cannot see that: this script has no
+# argument parser, so it cannot be run with --help. It has to be executed for real, and
+# pointing all three paths at a tmp_path is what makes doing so safe.
 
 @pytest.fixture
 def rebuild_env(child_env, tmp_path):
