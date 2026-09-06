@@ -1,5 +1,9 @@
 [build-system]
-requires = ["setuptools>=61"]
+# 77 rather than 61 because that is the first release to understand the PEP 639
+# `license = "MIT"` SPDX string and `license-files` below. An older setuptools reads the
+# string as the deprecated free-text form and drops the LICENSE file from the built
+# distribution, which is the one thing the MIT licence requires us to ship.
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +11,13 @@ name = "attendance"
 version = "0.1.0"
 description = "Face recognition attendance system"
 requires-python = ">=3.12"
+
+# MIT covers the code in this repository only. The anti-spoofing weights under
+# attendance/models/ are a separate work under Apache 2.0 and carry their own licence
+# text, which is why both files are listed -- a wheel has to ship the terms for
+# everything inside it, not just for the part we wrote.
+license = "MIT"
+license-files = ["LICENSE", "attendance/models/LICENSE-antispoof.txt"]
 
 # Dependencies are deliberately NOT listed here.
 #

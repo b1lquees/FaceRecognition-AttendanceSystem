@@ -30,6 +30,7 @@ that matters.
 - [Known limitations](#known-limitations)
 - [Roadmap](#roadmap)
 - [Credits](#credits)
+- [Licence](#licence)
 
 ## Features
 
@@ -59,24 +60,16 @@ Requires **Python 3.12+**.
 
 ```bash
 git clone https://github.com/b1lquees/FaceRecognition-AttendanceSystem.git
-```
-
-```bash
-cd FaceRecognition-AttendanceSystem && python -m venv venv
+cd FaceRecognition-AttendanceSystem
+python -m venv venv
 ```
 
 Activate the environment — `venv\Scripts\activate` on Windows, `source venv/bin/activate`
-on macOS and Linux — then install in three steps:
+on macOS and Linux — then install in three commands:
 
 ```bash
 pip install -r requirements.txt
-```
-
-```bash
 pip install --no-deps face-recognition==1.3.0
-```
-
-```bash
 pip install -e . --no-deps
 ```
 
@@ -105,9 +98,6 @@ passed as an argument:
 
 ```bash
 python scripts/init_db.py
-```
-
-```bash
 python scripts/create_user.py alice --role admin
 ```
 
@@ -159,6 +149,14 @@ Lower is stricter: fewer false matches, more failures to recognise someone whose
 appearance has changed. An unrecognised face is obvious to the person
 standing there and costs one 1.5-second retry; the wrong person marked present is a false
 record nobody reading the register would ever spot.
+
+The match column grades a distance rather than just accepting it, and the grades are
+fractions of the tolerance rather than fixed numbers — 0.45 is a comfortable match at a
+cutoff of 0.6 and a near miss at 0.5. At the current `0.5` that puts strong at roughly 0.33
+and below, fair up to roughly 0.42, and borderline above that. Rows recorded under the
+older, more forgiving 0.6 cutoff are still in the history, which is why distances between
+0.5 and 0.6 appear there and show as borderline: they are not wrong, they were accepted
+under the rule in force at the time.
 
 ## Usage
 
@@ -300,7 +298,7 @@ policy control of the same class as a door badge rather than proof of presence. 
 buys is moving the attack from *anywhere with a browser* to *on the premises, or
 deliberately tunnelling in* — a real change of category, not a solved problem.
 
-Three things that will bite:
+Three failure modes to watch for:
 
 - **`TRUSTED_PROXY_HOPS` has to be right**, or the gate is meaningless. Behind an
   uncorrected proxy every request appears to come from the proxy, and the proxy is usually
@@ -477,11 +475,8 @@ someone's frames has stopped being a gate.
 If it does give you a threshold:
 
 ```bash
-set LIVENESS_ENABLED=1
-```
-
-```bash
-set LIVENESS_THRESHOLD=<the number it printed>
+export LIVENESS_ENABLED=1
+export LIVENESS_THRESHOLD=<the number it printed>
 ```
 
 If it starts refusing you, set `LIVENESS_ENABLED=0` and recalibrate rather than lowering
@@ -547,24 +542,15 @@ Set up the schema and the first administrator on the volume the stack uses:
 
 ```bash
 docker compose run --rm app python scripts/init_db.py
-```
-
-```bash
 docker compose run --rm app python scripts/create_user.py alice --role admin
 ```
 
-And a separate account for the camera station. `--role` defaults to `viewer`, which is the
-point: the station needs `/camera` and `/recognize`, and neither requires admin.
+And a separate account for the camera station, left at the default `viewer` role — never
+an administrator, for the reasons given under [Quick start](#quick-start).
 
 ```bash
 docker compose run --rm app python scripts/create_user.py station
 ```
-
-> Signing the door camera in as an administrator leaves an unattended admin session in a
-> corridor: anyone walking up can enrol a face under somebody else's name, remove people,
-> approve accounts, or export the whole attendance archive in one click. It also collapses
-> the audit trail, because every one of those actions is then logged as the station rather
-> than as a person.
 
 **Choose your certificate** in [`Caddyfile`](Caddyfile). It ships configured for the common
 case — a camera on a LAN with no public DNS name — where Caddy runs its own certificate
@@ -628,9 +614,6 @@ and `docker rm` deletes the attendance record along with the container.
 
 ```bash
 docker build -t attendance .
-```
-
-```bash
 docker volume create attendance-data
 ```
 
@@ -640,24 +623,15 @@ scripts wrote:
 
 ```bash
 docker run --rm -it -v attendance-data:/data attendance python scripts/init_db.py
-```
-
-```bash
 docker run --rm -it -v attendance-data:/data attendance python scripts/create_user.py alice --role admin
 ```
 
-And a separate account for the camera station. `--role` defaults to `viewer`, which is the
-point: the station needs `/camera` and `/recognize`, and neither requires admin.
+And a separate account for the camera station, left at the default `viewer` role — never
+an administrator, for the reasons given under [Quick start](#quick-start).
 
 ```bash
 docker run --rm -it -v attendance-data:/data attendance python scripts/create_user.py station
 ```
-
-> Signing the door camera in as an administrator leaves an unattended admin session in a
-> corridor: anyone walking up can enrol a face under somebody else's name, remove people,
-> approve accounts, or export the whole attendance archive in one click. It also collapses
-> the audit trail, because every one of those actions is then logged as the station rather
-> than as a person.
 
 Then run it:
 
@@ -687,7 +661,7 @@ start without one rather than falling back to a guessable default.
 > `ls C:/Program Files/Git/data` inside the container. Prefix with `MSYS_NO_PATHCONV=1` to
 > stay in Git Bash.
 
-Two more things worth knowing:
+Three more things worth knowing:
 
 - **The container's clock is UTC** unless you pass `TIMEZONE`. Attendance times are
   recorded in the configured zone, so a register kept in one timezone and a container
@@ -863,7 +837,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-519 tests covering attendance de-duplication, recognition of unknown faces, password
+573 tests covering attendance de-duplication, recognition of unknown faces, password
 hashing, route-level authentication and authorisation, schema migrations, timezone
 handling, enrolment validation, the stylesheet's own invariants and the calibration
 arithmetic. Every test runs against a throwaway database in pytest's temporary directory,
@@ -914,3 +888,15 @@ matters.
   [`face_recognition`](https://github.com/ageitgey/face_recognition).
 - Liveness model: [facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx),
   Apache 2.0. The weights and licence text are included in `attendance/models/`.
+
+## Licence
+
+MIT -- see [LICENSE](LICENSE). Use it, change it, ship it; keep the copyright notice, and
+it comes with no warranty.
+
+Two things the licence does not cover. The anti-spoofing weights in
+`attendance/models/` are somebody else's work under Apache 2.0, and stay under it --
+`LICENSE-antispoof.txt` travels with them for that reason. And the licence says nothing
+about the data: face images, encodings and the attendance database are personal data
+about real people, none of it is in this repository, and none of it should be. Whether
+you may enrol someone is a question about consent and local law, not about this file.
