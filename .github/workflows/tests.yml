@@ -71,3 +71,72 @@ jobs:
       # sys.path, which hides import mistakes that then only appear here.
       - name: Run tests
         run: pytest -v
+
+  # The deployment the README recommends is the one thing the jobs above cannot fail on:
+  # a Dockerfile that no longer builds, or an image that builds and cannot serve, passes
+  # ruff and passes pytest and is discovered on somebody's server. Building it is half
+  # the check. The other half is starting it and asking /healthz, because "the image
+  # built" and "the image works" have been different answers here before -- /data
+  # ownership and the missing-schema case both look fine to a build.
+  #
+  # Not in the test matrix: this is Linux-only by nature (the image is
+  # python:3.12-slim-bookworm whatever the host), and it needs none of the matrix's
+  # system libraries, since everything it needs is inside the image.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build -t attendance:ci .
+
+      - name: Start a container
+        # A named volume rather than a bind mount, for the reason the Dockerfile gives:
+        # /data is owned by uid 10001 in the image and a named volume inherits that,
+        # while a bind mount arrives owned by the runner and fails on the first write.
+        #
+        # A real random key rather than a fixed string because production refuses to
+        # start without one, and generating it here is the same gesture the README asks
+        # a deployer for. It lives and dies with this container.
+        run: |
+          docker run -d --name attendance \
+            -e FLASK_SECRET_KEY="$(python -c 'import secrets; print(secrets.token_hex(32))')" \
+            -v attendance-ci-data:/data \
+            -p 8000:8000 \
+            attendance:ci
+
+      - name: Expect 503 before the schema exists
+        # The image ships no database -- .dockerignore keeps it out of the build context
+        # -- so a container brought up without init_db.py is exactly the failure /healthz
+        # exists to name: up, responsive, and 500s on every page. Asserting the 503 here
+        # is what keeps the 200 below meaningful; a check that answered 200 unconditionally
+        # would pass the next step just as happily.
+        run: |
+          for attempt in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz || true)
+            case "$code" in
+              503) echo "503 as expected after ${attempt} attempt(s)"; exit 0 ;;
+              200) echo "answered 200 with no schema -- the health check is not checking"; exit 1 ;;
+              *)   sleep 2 ;;
+            esac
+          done
+          echo "never answered at all"
+          exit 1
+
+      - name: Create the schema
+        run: docker exec attendance python scripts/init_db.py
+
+      - name: Expect 200 once it exists
+        # No retry loop: the container has already proved it answers, and the only thing
+        # that changed is the schema. Anything other than 200 now is a real failure
+        # rather than a slow boot.
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8000/healthz)
+          test "$code" = "200" || { echo "still ${code} after init_db.py"; exit 1; }
+          echo "healthy"
+
+      - name: Container logs
+        # always(), because the logs are most wanted in the case where a step above
+        # failed and the reason is gunicorn's stderr rather than the status code.
+        if: always()
+        run: docker logs attendance
