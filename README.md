@@ -49,8 +49,9 @@ switch, and a running list of who has been recognised in this session.
 
 ![The camera page, running](docs/screenshots/camera.png)
 
-<sub>Captured headlessly, so the video panel is showing the browser's synthetic test
-camera rather than a room.</sub>
+<sub>Captured headlessly, so the video panel is showing a synthetic camera feed rather
+than a room. The preview is mirrored on purpose — moving left on screen matches moving
+left in front of the camera.</sub>
 
 | Today's register | Full archive |
 | --- | --- |
