@@ -11,6 +11,11 @@ browser's, so nothing needs installing on the machine people walk up to: frames 
 to the server, matched against enrolled faces, and written to a register that
 administrators can export as CSV.
 
+**Status:** working and tested, actively developed. 573 automated tests run on every push,
+on Ubuntu and Windows, alongside `ruff` and a job that builds the Docker image and starts
+it. Anti-spoofing is measured but disabled — see [Anti-spoofing](#anti-spoofing) — and the
+constraints under [Known limitations](#known-limitations) are worth reading before
+deploying this anywhere that matters.
 
 ## Contents
 
