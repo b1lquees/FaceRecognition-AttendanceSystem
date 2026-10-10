@@ -24,3 +24,6 @@ dist/
 
 # personal calibration measurements, not shared
 scripts/liveness-scores-*.json
+
+# anti-spoofing training images: real faces, never committed
+dataset/
