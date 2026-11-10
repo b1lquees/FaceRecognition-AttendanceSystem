@@ -105,6 +105,21 @@ def create_schema(db_path=None):
     )
     """)
 
+    # one row per class. A teacher starts a class and attendance taken during it is recorded
+    # against that class rather than against the day, so a student can attend two classes in one
+    # day. secret is a random value kept per class; the rotating check-in code is derived from it
+    # and the clock, so the code itself never needs storing.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        course TEXT NOT NULL,
+        starts_at TEXT NOT NULL,
+        ends_at TEXT NOT NULL,
+        secret TEXT NOT NULL,
+        created_by TEXT
+    )
+    """)
+
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,18 +129,8 @@ def create_schema(db_path=None):
     )
     """)
 
-    # this is what actually enforces "one attendance record per person per day". it is a UNIQUE
-    # INDEX rather than a UNIQUE(...) constraint inside CREATE TABLE because an index can be added
-    # to a database that already has data in it, whereas changing a table constraint would mean
-    # rebuilding the whole table. the column order is (date, student_id) rather than (student_id,
-    # date) so the same index also speeds up the date lookup in get_todays_attendance() and the date
-    # ordering in get_all_attendance() -- sqlite can only use an index starting from its leftmost
-    # column, so putting date first makes it useful for both jobs.
-    cursor.execute("""
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_day_student
-    ON attendance (date, student_id)
-    """)
-
+    # the uniqueness rules for attendance live in run_migrations(), because they depend on the
+    # session_id column, which an existing database only gets there
     run_migrations(cursor)
 
     conn.commit()  # saving the changes
@@ -181,19 +186,38 @@ def run_migrations(cursor):
     if not column_exists(cursor, "attendance", "time_out"):
         cursor.execute("ALTER TABLE attendance ADD COLUMN time_out TEXT")
 
+    # which class a check-in belongs to. NULL means no class was running -- a kiosk check-in --
+    # which is also the right value for every existing row, so there is no backfill.
+    if not column_exists(cursor, "attendance", "session_id"):
+        cursor.execute(
+            "ALTER TABLE attendance ADD COLUMN session_id INTEGER REFERENCES sessions(id)"
+        )
+
+    # The uniqueness rule used to be one index over the whole table: one record per person per
+    # day. With classes that is wrong -- two classes in a day are two records -- so it becomes two
+    # PARTIAL indexes, each covering only the rows its WHERE clause matches:
+    #
+    #   no class  (session_id IS NULL)     -> one record per person per day, exactly as before
+    #   a class   (session_id IS NOT NULL) -> one record per person per class
+    #
+    # check_in() relies on these: INSERT OR IGNORE skips a row that would break either rule, which
+    # is how "already checked in" stays a single atomic statement even with frames arriving
+    # together. date stays first in the kiosk index so it still speeds up "today's register".
+    cursor.execute("DROP INDEX IF EXISTS idx_attendance_day_student")
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_day_student_kiosk
+        ON attendance (date, student_id) WHERE session_id IS NULL
+    """)
+    cursor.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attendance_session_student
+        ON attendance (session_id, student_id) WHERE session_id IS NOT NULL
+    """)
+
     give_old_timestamps_an_offset(cursor)
 
 
 def give_old_timestamps_an_offset(cursor):
     """Rewrite "09:15:42" as "2026-08-12T09:15:42+05:00".
-
-    Times used to be stored naive, with nothing recording which offset they were written
-    in. This is the one migration in the project that cannot be exact: the information
-    was never captured, so it cannot be recovered. Existing rows are interpreted in the
-    configured timezone, which is right if the server has not moved and is the only
-    defensible guess if it has.
-
-    New rows carry their offset, so this is a one-time problem that does not recur.
     """
     from .clock import combine, get_timezone, stamp
 

@@ -19,8 +19,10 @@ import face_recognition  # finds where faces are in an image
 import numpy as np  # images are numpy arrays; used here to copy one into fresh memory
 
 from attendance.liveness import crop_face  # the app's own face-cropping code, so training
+
 # images are cut exactly the way the live system will cut them
 from attendance.recognition import DETECTION_SCALE  # 0.5: the app searches for faces on a
+
 # half-size frame because it is faster; we use the same value so both behave alike
 
 # where the images go: a "dataset" folder in the project root (one level above scripts/)
@@ -29,7 +31,7 @@ SIZE = 224  # every crop is resized to 224x224 pixels, the input size MobileNet 
 
 
 def main():
-    # 1. read the options typed on the command line 
+    # 1. read the options typed on the command line
     parser = argparse.ArgumentParser()
     # first, required: what is in front of the camera -- a real face or a spoof
     parser.add_argument("label", choices=["real", "spoof"])
@@ -43,7 +45,7 @@ def main():
     parser.add_argument("--max", type=int, default=200)
     args = parser.parse_args()  # turns the typed options into args.label, args.person, ...
 
-    # 2. prepare the output folder 
+    # 2. prepare the output folder
     out = DATASET / args.label  # dataset/real or dataset/spoof
     out.mkdir(parents=True, exist_ok=True)  # create it if missing; no error if it exists
     prefix = f"{args.person}__{args.session}__"  # e.g. "bilquees__samsungA05S-screen-room1__"
@@ -51,7 +53,7 @@ def main():
     # numbering (0012, 0013, ...) instead of overwriting the first run's images
     saved = len(list(out.glob(prefix + "*.jpg")))
 
-    # 3. open the camera 
+    # 3. open the camera
     cap = cv2.VideoCapture(0)  # 0 = the computer's default webcam
     last = 0.0  # time of the last save; 0 means "save the first good frame straight away"
     count = 0  # images saved in this run
@@ -80,8 +82,8 @@ def main():
             box = tuple(int(v / DETECTION_SCALE) for v in boxes[0])
             # cut a square around the face (with some margin), then resize to 224x224
             crop = cv2.resize(crop_face(rgb, box), (SIZE, SIZE))
-            # save as e.g. dataset/real/bilquees__samsungA05S-screen-room1__0007.jpg; imwrite expects BGR,
-            # so the colour channels are flipped back with [:, :, ::-1]
+            # save as e.g. dataset/real/bilquees__samsungA05S-screen-room1__0007.jpg;
+            # imwrite expects BGR, so the colour channels are flipped back with [:, :, ::-1]
             cv2.imwrite(str(out / f"{prefix}{saved:04d}.jpg"), crop[:, :, ::-1])
             saved += 1  # next file number
             count += 1  # one more image this run
@@ -96,7 +98,7 @@ def main():
         if cv2.waitKey(1) & 0xFF == ord("q"):
             break
 
-    # 5. clean up 
+    # 5. clean up
     cap.release()  # free the webcam so other programs can use it (and the light turns off)
     cv2.destroyAllWindows()  # close the preview window
     print(f"Saved {count} images to {out}")  # summary in the terminal

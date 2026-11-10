@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+
+{% block title %}{{ cls.course }} check-in{% endblock %}
+{% set active_page = 'classes' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Class check-in</div>
+    <h1>{{ cls.course }}</h1>
+    <p class="subtitle">Scan the code with the check-in page on your phone</p>
+</header>
+
+<div class="card">
+    <div class="card-body class-checkin">
+        {# the QR students scan. Kept on a white tile so it stays scannable in dark mode #}
+        <div class="class-qr" id="student-qr">{{ student_qr }}</div>
+
+        <div>
+            {# the same code in digits, for anyone whose camera won't scan #}
+            <p class="class-code" id="code">{{ code }}</p>
+            <p class="class-countdown">New code in <span id="seconds">{{ seconds }}</span> s</p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-head">
+        <span class="card-title">Teacher: add this class to your authenticator app</span>
+    </div>
+    <div class="card-body class-checkin">
+        <div class="class-qr class-qr-small">{{ teacher_qr }}</div>
+        <p class="note">
+            Scan with Google Authenticator or Microsoft Authenticator. Your phone will then show
+            the same code as this screen, so you can read it out if the projector is off.
+        </p>
+    </div>
+</div>
+
+{# a POST, not a link: ending a class changes data, and links can be followed by accident #}
+<form method="POST" action="{{ url_for('classes.end', session_id=cls.id) }}">
+    <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+    <button class="btn btn-danger" type="submit">End class</button>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script nonce="{{ csp_nonce() }}">
+    const CODE_URL = "{{ url_for('classes.code', session_id=cls.id) }}";
+    const codeEl = document.getElementById("code");
+    const qrEl = document.getElementById("student-qr");
+    const secondsEl = document.getElementById("seconds");
+    let seconds = Number(secondsEl.textContent);
+
+    // ask the server for the current code and QR. The server is the only clock that
+    // counts, so the page never works the code out itself.
+    async function refresh() {
+        try {
+            const response = await fetch(CODE_URL, { cache: "no-store" });
+            if (!response.ok) return;  // signed out or class gone: keep the last code shown
+            const data = await response.json();
+            codeEl.textContent = data.code;
+            qrEl.innerHTML = data.qr;  // SVG made by our own server, not user input
+            seconds = data.seconds;
+        } catch (error) {
+            // network blip: try again on the next tick
+        }
+    }
+
+    // count down every second; fetch every 5 s and whenever the code is due to change
+    setInterval(() => {
+        seconds = seconds > 1 ? seconds - 1 : 30;
+        secondsEl.textContent = seconds;
+        if (seconds % 5 === 0 || seconds === 30) refresh();
+    }, 1000);
+</script>
+{% endblock %}

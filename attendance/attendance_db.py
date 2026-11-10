@@ -39,8 +39,12 @@ def register_student(name):
     conn.close()
     return student_id
 
-def check_in(name, confidence):
-    """Record someone arriving. Returns "checked_in" or "already_in"."""
+def check_in(name, confidence, session_id=None):
+    """Record someone arriving. Returns "checked_in" or "already_in".
+
+    session_id is the class being attended; None means no class is running (kiosk mode),
+    which keeps the original one-record-per-day behaviour.
+    """
     student_id = get_student_id(name)
     if student_id is None:
         student_id = register_student(name)  # auto-register if this name has never been seen
@@ -64,9 +68,9 @@ def check_in(name, confidence):
     # the ? placeholders protect against sql injection and handle the quoting and
     # formatting of the values automatically.
     cursor.execute(
-        "INSERT OR IGNORE INTO attendance (student_id, date, time_in, confidence) "
-        "VALUES (?, ?, ?, ?)",
-        (student_id, today, arrived, confidence)
+        "INSERT OR IGNORE INTO attendance (student_id, date, time_in, confidence, session_id) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (student_id, today, arrived, confidence, session_id)
     )
     conn.commit()
 
@@ -77,7 +81,7 @@ def check_in(name, confidence):
     return "checked_in" if inserted else "already_in"
 
 
-def check_out(name):
+def check_out(name, session_id=None):
     """Record someone leaving. Returns "checked_out", "already_out" or "not_checked_in".
 
     Checking out is deliberately not automatic. Setting time_out on every sighting would
@@ -99,8 +103,8 @@ def check_out(name):
     # the recorded leaving time is the first one, not whichever request finished last
     cursor.execute("""
         UPDATE attendance SET time_out = ?
-        WHERE student_id = ? AND date = ? AND time_out IS NULL
-    """, (left, student_id, today))
+        WHERE student_id = ? AND date = ? AND time_out IS NULL AND session_id IS ?
+    """, (left, student_id, today, session_id))
     conn.commit()
 
     if cursor.rowcount == 1:
@@ -110,7 +114,10 @@ def check_out(name):
     # nothing was updated, which means either there is no row for today at all or it
     # already has a leaving time. those need different messages, so ask.
     existing = cursor.execute(
-        "SELECT 1 FROM attendance WHERE student_id = ? AND date = ?", (student_id, today)
+        # "session_id IS ?" matches NULL too (= would not), so the same query serves both the
+        # kiosk record for today and the record for one particular class
+        "SELECT 1 FROM attendance WHERE student_id = ? AND date = ? AND session_id IS ?",
+        (student_id, today, session_id),
     ).fetchone()
     conn.close()
     return "already_out" if existing else "not_checked_in"

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+
+{% block title %}Classes{% endblock %}
+{% set active_page = 'classes' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Administration</div>
+    <h1>Classes</h1>
+    <p class="subtitle">Start a class to show its check-in code on the classroom screen</p>
+</header>
+
+{# a shortcut back to the class already running, so the teacher can reopen its page #}
+{% if running %}
+<div class="card">
+    <div class="card-head">
+        <span class="card-title">Running now</span>
+        <span class="pill pill-green">{{ running.course }}</span>
+    </div>
+    <div class="card-body">
+        <a class="btn btn-primary" href="{{ url_for('classes.show', session_id=running.id) }}">
+            Open the check-in screen
+        </a>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-head">
+        <span class="card-title">Start a class</span>
+    </div>
+    <div class="card-body">
+        <form method="POST" action="{{ url_for('classes.start') }}" novalidate>
+            <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
+
+            <label class="field">
+                <span>Course</span>
+                <input type="text" name="course" required maxlength="64" placeholder="e.g. AI 301">
+            </label>
+
+            <label class="field">
+                <span>Length (minutes)</span>
+                <input type="number" name="minutes" required min="1" max="240" value="60">
+                <small>Check-ins are accepted only while the class is running.</small>
+            </label>
+
+            <button class="btn btn-primary" type="submit">Start class</button>
+        </form>
+    </div>
+</div>
+{% endblock %}

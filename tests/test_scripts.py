@@ -29,6 +29,7 @@ EVERY_SCRIPT = sorted(p.name for p in SCRIPTS.glob("*.py"))
 # opened or any cache is rebuilt
 PARSES_ARGUMENTS = [
     "calibrate_liveness.py",
+    "collect_faces.py",
     "create_user.py",
     "peek_db.py",
     "reset_attendance.py",

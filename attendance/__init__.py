@@ -174,13 +174,14 @@ def create_app(config=None): #caller can optionally provide configuration
 
     # imported inside the function rather than at module level: the route modules import from this
     # package, so importing them at the top would be a circular import
-    from .routes import admin_bp, auth_bp, main_bp, recognition_bp, records_bp
+    from .routes import admin_bp, auth_bp, classes_bp, main_bp, recognition_bp, records_bp
 
     app.register_blueprint(main_bp)
     app.register_blueprint(auth_bp)
     app.register_blueprint(records_bp)
     app.register_blueprint(recognition_bp)
     app.register_blueprint(admin_bp)
+    app.register_blueprint(classes_bp)
 
     return app
 # create_app() choose configuration create flask app set secret key configure logging configure csrf

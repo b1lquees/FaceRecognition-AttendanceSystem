@@ -1676,3 +1676,44 @@ summary:focus-visible {
         transition-duration: .001ms !important;
     }
 }
+
+/* --- class check-in screen ------------------------------------------------------
+   Shown on a projector, so the code is sized to read from the back of a room. The QR
+   sits on a white tile in both themes: scanners need dark modules on a light ground. */
+.class-checkin {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 32px;
+}
+
+.class-qr {
+    width: min(360px, 100%);
+    padding: 16px;
+    background: #fff;
+    border-radius: var(--radius);
+}
+
+.class-qr svg {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.class-qr-small {
+    width: 160px;
+}
+
+.class-code {
+    margin: 0;
+    font-size: clamp(48px, 9vw, 96px);
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text);
+}
+
+.class-countdown {
+    margin: 4px 0 0;
+    color: var(--muted);
+}

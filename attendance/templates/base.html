@@ -89,6 +89,13 @@
             <path d="M22 18a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h3l1.6-2.5h6.8L17 7h3a2 2 0 0 1 2 2z" />
             <circle cx="12" cy="13" r="3.6" />
         </symbol>
+        <symbol id="i-qr" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+                stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3.5" y="3.5" width="6" height="6" rx="1" />
+            <rect x="14.5" y="3.5" width="6" height="6" rx="1" />
+            <rect x="3.5" y="14.5" width="6" height="6" rx="1" />
+            <path d="M14.5 14.5h2v2M20.5 14.5v6h-3M14.5 18.5v2" />
+        </symbol>
         <symbol id="i-export" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
                 stroke-linecap="round" stroke-linejoin="round">
             <path d="M12 3v11m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2" />
@@ -206,6 +213,10 @@
 
             {% if session.role == 'admin' %}
             <p class="nav-label">Administration</p>
+            <a class="nav-link {{ 'is-active' if active_page == 'classes' }}"
+               href="{{ url_for('classes.index') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-qr" /></svg>Classes
+            </a>
             <a class="nav-link {{ 'is-active' if active_page == 'enrol' }}"
                href="{{ url_for('admin.enrol_person') }}">
                 <svg class="nav-icon" aria-hidden="true"><use href="#i-enrol" /></svg>Enrol
