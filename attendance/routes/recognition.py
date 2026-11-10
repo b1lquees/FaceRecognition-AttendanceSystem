@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import time
 from ipaddress import ip_address
 
 import cv2
@@ -16,6 +17,7 @@ from ..decorators import login_required
 from ..liveness import LivenessUnavailable, is_live
 from ..ratelimit import client_key, rate_limit
 from ..recognition import DETECTION_SCALE, get_known_encodings, identify_face
+from ..sessions_db import current_session, verify_code
 
 # a blueprint keeps the recognition routes in their own module rather than one flat app file
 recognition_bp = Blueprint("recognition", __name__)
@@ -35,6 +37,17 @@ STATUS_PRIORITY = [
     "not_checked_in", "mismatch", "not_linked",
     "unknown",
 ]
+
+# During a class, a phone may send face frames only this many seconds after scanning the
+# class code. Long enough to scan and then look at the camera; far too short for a code
+# forwarded to someone outside the room to be scanned and followed by their face.
+SCAN_TO_FACE_SECONDS = 15
+
+# where a valid scan is remembered: the signed session cookie, so the phone cannot forge it
+CLASS_SCAN_KEY = "class_scan"
+
+# outcomes that mean the face was matched to the signed-in person, which uses the scan up
+MATCHED = ("checked_in", "already_in", "checked_out", "already_out")
 
 
 def on_site(address, networks):
@@ -122,6 +135,8 @@ def result(status, name=None, distance=None, marked=False):
         not_checked_in - tried to check out without having checked in
         not_linked     - personal mode, and this account is not linked to a person
         mismatch       - personal mode, and the face is not the signed-in person
+        code_required  - a class is running and this phone has not scanned its code
+        code_expired   - the code was scanned, but more than SCAN_TO_FACE_SECONDS ago
 
     The outcome is its own field so the page never has to string-match on the name. A
     sentinel like "No face detected" in the name field would be both a name and a control
@@ -134,6 +149,65 @@ def result(status, name=None, distance=None, marked=False):
         "distance": distance if distance is None else round(float(distance), 2),
         "marked": marked,
     })
+
+
+def class_gate():
+    """Which class a check-in belongs to, and whether this phone may send faces yet.
+
+    Returns (class_id, refusal): class_id is None when no class is running, and refusal is
+    a response to send back instead of looking at the frame, or None to carry on.
+
+    Kiosk mode needs no code: its camera is fixed in the room, which already proves where
+    the person is. Personal mode is a phone that could be anywhere, so during a class it
+    must have scanned the code on the classroom screen within the last few seconds.
+    """
+    running = current_session()
+    if running is None:
+        return None, None  # no class: everything works as it always did
+    if current_app.config["KIOSK_MODE"]:
+        return running["id"], None
+
+    scan = session.get(CLASS_SCAN_KEY)
+    if not scan or scan.get("session_id") != running["id"]:
+        return running["id"], result("code_required")
+    if time.time() - scan.get("at", 0) > SCAN_TO_FACE_SECONDS:
+        session.pop(CLASS_SCAN_KEY, None)  # stale: the student has to scan again
+        return running["id"], result("code_expired")
+    return running["id"], None
+
+
+@recognition_bp.route("/checkin/code", methods=["POST"])
+@login_required
+# 10 a minute per account: plenty to retry a smudged scan, and nowhere near enough to guess
+# a 6-digit code before it changes (that would take on average 500,000 tries)
+@rate_limit(limit=10, per_seconds=60, as_json=True, key=checkin_client_key)
+def checkin_code():
+    """Step 1 of a phone check-in: the student scans the classroom QR or types its code."""
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("code", "")).strip()
+
+    running = current_session()
+    if running is None:
+        return jsonify({"status": "no_class", "error": "No class is running."}), 409
+
+    # the classroom QR holds "FA:<class id>:<code>"; a typed code is just the six digits
+    if text.startswith("FA:"):
+        parts = text.split(":")
+        if len(parts) != 3 or parts[1] != str(running["id"]):
+            return jsonify({"status": "wrong_class",
+                            "error": "That QR code is for a different class."}), 400
+        text = parts[2]
+
+    if not verify_code(running, text):
+        # audited: a run of these is somebody guessing, or a forwarded code arriving late
+        audit("checkin.bad_code", session_id=running["id"])
+        return jsonify({"status": "bad_code",
+                        "error": "That code is wrong or has expired. Scan it again."}), 400
+
+    # remember the scan in the signed session cookie; /recognize checks it next
+    session[CLASS_SCAN_KEY] = {"session_id": running["id"], "at": time.time()}
+    return jsonify({"status": "ok", "course": running["course"],
+                    "seconds": SCAN_TO_FACE_SECONDS})
 
 
 @recognition_bp.route("/camera")
@@ -196,6 +270,12 @@ def recognize():
             "error": "Check-in is only available on site.",
             "offsite": True,
         }), 403
+
+    # Also before the body is decoded: during a class, a phone that has not just scanned
+    # the class code is refused without any face work being done.
+    class_id, refusal = class_gate()
+    if refusal is not None:
+        return refusal
 
     # silent=True makes get_json() return None on malformed JSON instead of raising,
     # so a bad request becomes a clean 400 rather than a 500 with a stack trace
@@ -260,18 +340,26 @@ def recognize():
     for location in face_locations[:MAX_FACES_PER_FRAME]:
         # deliberately not named `outcome`: that is the function these come back from, and
         # binding it here would shadow it for the rest of this scope
-        face_outcome = handle_one_face(rgb_frame, location, data.get("mode"))
+        face_outcome = handle_one_face(rgb_frame, location, data.get("mode"), class_id)
         if face_outcome is not None:
             outcomes.append(face_outcome)
 
     if not outcomes:
         return result("no_face")
 
+    # one scan, one check-in: once the face has matched, the next check-in needs a new scan
+    if class_id and any(item["status"] in MATCHED for item in outcomes):
+        session.pop(CLASS_SCAN_KEY, None)
+
     return jsonify({"status": summarise(outcomes), "results": outcomes})
 
 
-def handle_one_face(rgb_frame, location, mode):
-    """Everything that happens to a single detected face. Returns a result dict."""
+def handle_one_face(rgb_frame, location, mode, class_id=None):
+    """Everything that happens to a single detected face. Returns a result dict.
+
+    class_id is the class running now, so the record is saved under it; None when no class
+    is running, which keeps the once-a-day record.
+    """
     # Liveness runs BEFORE recognition, deliberately. A photograph of an enrolled person
     # produces the same encoding the real person does, so identifying first and checking
     # afterwards would mean the system knew whose photo it was looking at -- and the only
@@ -324,7 +412,7 @@ def handle_one_face(rgb_frame, location, mode):
     # "in" unless the page explicitly asked to check out, so a malformed or missing mode
     # falls back to the safer of the two: recording an arrival that can be corrected is
     # better than recording a departure that was never intended
-    status = check_out(name) if mode == "out" else check_in(name, distance)
+    status = check_out(name, class_id) if mode == "out" else check_in(name, distance, class_id)
 
     return outcome(
         status, name=name, distance=distance,

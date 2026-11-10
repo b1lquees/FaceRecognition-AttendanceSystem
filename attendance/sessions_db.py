@@ -35,32 +35,34 @@ def start_session(course, minutes, created_by=None):
     return session_id
 
 
+COLUMNS = ("id", "course", "starts_at", "ends_at", "secret", "created_by")
+
+
 def get_session(session_id):
     """One class as a dict, or None if there is no such id."""
     conn = connect()
     row = conn.execute(
-        "SELECT id, course, starts_at, ends_at, secret, created_by FROM sessions WHERE id = ?",
-        (session_id,),
+        f"SELECT {', '.join(COLUMNS)} FROM sessions WHERE id = ?", (session_id,)
     ).fetchone()
     conn.close()
-    if row is None:
-        return None
-    keys = ("id", "course", "starts_at", "ends_at", "secret", "created_by")
-    return dict(zip(keys, row))
+    return dict(zip(COLUMNS, row)) if row else None
 
 
 def current_session():
     """The class running right now, or None.
 
-    Compared as real moments (parse) rather than as text, because the stored times carry
-    a UTC offset and two strings with different offsets do not sort in time order.
+    Called on every camera frame, so it is one query. Compared as real moments (parse)
+    rather than as text, because the stored times carry a UTC offset and two strings with
+    different offsets do not sort in time order.
     """
     conn = connect()
-    ids = [r[0] for r in conn.execute("SELECT id FROM sessions ORDER BY id DESC LIMIT 50")]
+    rows = conn.execute(
+        f"SELECT {', '.join(COLUMNS)} FROM sessions ORDER BY id DESC LIMIT 50"
+    ).fetchall()
     conn.close()
     moment = now()
-    for session_id in ids:  # newest first, so overlapping classes resolve to the latest
-        session = get_session(session_id)
+    for row in rows:  # newest first, so overlapping classes resolve to the latest
+        session = dict(zip(COLUMNS, row))
         if parse(session["starts_at"]) <= moment < parse(session["ends_at"]):
             return session
     return None
