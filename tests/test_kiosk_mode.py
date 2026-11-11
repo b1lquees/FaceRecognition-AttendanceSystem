@@ -1,5 +1,3 @@
-import pytest
-
 from attendance.attendance_db import get_todays_attendance, register_student
 from attendance.auth_db import (
     create_user,
@@ -131,17 +129,31 @@ def test_the_setting_is_what_changes_the_outcome(
 
 # --- unaffected outcomes --------------------------------------------------------
 
-@pytest.mark.parametrize("kiosk", [True, False])
-def test_an_unrecognised_face_is_reported_the_same_in_both_modes(
-    client, login, csrf, frame, recognises, app, kiosk
+def test_kiosk_mode_reports_an_unrecognised_face_as_unknown(
+    client, login, csrf, frame, recognises, app
 ):
-    app.config["KIOSK_MODE"] = kiosk
+    app.config["KIOSK_MODE"] = True
     sign_in_as(client, login, "alice", student_name="Alice")
     recognises("Unknown", distance=0.9)
 
     data = post_frame(client, csrf, frame).get_json()
 
     assert data["status"] == "unknown"
+    assert data["results"][0]["marked"] is False
+
+
+# Personal mode checks one person (1:1), never searching everyone, so it cannot tell a
+# stranger from a classmate -- only that the face is not the signed-in student.
+def test_personal_mode_reports_an_unrecognised_face_as_not_you(
+    client, login, csrf, frame, recognises, app
+):
+    app.config["KIOSK_MODE"] = False
+    sign_in_as(client, login, "alice", student_name="Alice")
+    recognises("Unknown", distance=0.9)
+
+    data = post_frame(client, csrf, frame).get_json()
+
+    assert data["status"] == "mismatch"
     assert data["results"][0]["marked"] is False
 
 

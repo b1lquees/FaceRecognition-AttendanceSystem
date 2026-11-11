@@ -10,6 +10,13 @@ def get_student_id(name):
     conn.close()
     return row[0] if row else None
 
+def get_student_name(student_id):
+    """The enrolled name for an id, or None."""
+    conn = connect()
+    row = conn.execute("SELECT name FROM students WHERE id = ?", (student_id,)).fetchone()
+    conn.close()
+    return row[0] if row else None
+
 def list_students():
     """Everyone enrolled, for the admin dropdown that links an account to a person."""
     conn = connect()

@@ -89,6 +89,11 @@ def recognises(monkeypatch):
             route.face_recognition, "face_encodings", lambda image, locations: [np.zeros(128)]
         )
         monkeypatch.setattr(route, "identify_face", lambda encoding, known: (name, distance))
+        # personal mode asks "is this the signed-in person?" instead of "who is this?",
+        # so the same pretend face answers yes only when it is the person being asked about
+        monkeypatch.setattr(
+            route, "verify_face", lambda encoding, claimed, known: (claimed == name, distance)
+        )
 
     return _recognises
 

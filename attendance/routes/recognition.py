@@ -10,13 +10,13 @@ import face_recognition
 import numpy as np
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
-from ..attendance_db import check_in, check_out, get_student_id
+from ..attendance_db import check_in, check_out, get_student_name
 from ..audit import audit
 from ..auth_db import get_linked_student_id
 from ..decorators import login_required
 from ..liveness import LivenessUnavailable, is_live
 from ..ratelimit import client_key, rate_limit
-from ..recognition import DETECTION_SCALE, get_known_encodings, identify_face
+from ..recognition import DETECTION_SCALE, get_known_encodings, identify_face, verify_face
 from ..sessions_db import current_session, verify_code
 
 # a blueprint keeps the recognition routes in their own module rather than one flat app file
@@ -389,24 +389,25 @@ def handle_one_face(rgb_frame, location, mode, class_id=None):
     if not encodings:
         return None  # detected but not encodable; nothing to say about it
 
-    name, distance = identify_face(encodings[0], get_known_encodings())
-
-    if name == "Unknown":
-        return outcome("unknown", distance=distance)
-
-    # In personal mode the face in view has to belong to the account that is signed in.
-    # Without this check, being logged in as anyone lets you mark anyone else present,
-    # because check_in() records whoever was recognised and never consults the session
-    # at all. Kiosk mode wants exactly that behaviour, which is why this is a setting
-    # rather than a fix.
-    if not current_app.config["KIOSK_MODE"]:
+    if current_app.config["KIOSK_MODE"]:
+        # Kiosk: the door camera does not know who is walking up, so it searches everyone
+        # enrolled (1:N identification) and records whoever is closest.
+        name, distance = identify_face(encodings[0], get_known_encodings())
+        if name == "Unknown":
+            return outcome("unknown", distance=distance)
+    else:
+        # Personal mode: the signed-in account already says who this should be, so the face
+        # is compared against that one person's photos only (1:1 verification). That is the
+        # binding that stops someone logged in as anyone from marking anyone else present,
+        # and it cannot confuse two look-alike classmates because only one is compared.
         linked_student_id = get_linked_student_id(session["username"])
         if linked_student_id is None:
             return outcome("not_linked")
-        if linked_student_id != get_student_id(name):
-            # the recognised name is deliberately withheld. reporting it would tell the
-            # signed-in user who was standing in front of the camera, which leaks other
-            # people's presence to anyone able to point a webcam at them.
+        name = get_student_name(linked_student_id)
+        matched, distance = verify_face(encodings[0], name, get_known_encodings())
+        if not matched:
+            # who the face actually was is never worked out, so it cannot leak: a refused
+            # check-in tells the signed-in user nothing about who else was in view
             return outcome("mismatch")
 
     # "in" unless the page explicitly asked to check out, so a malformed or missing mode

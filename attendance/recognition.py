@@ -191,6 +191,26 @@ def reload_known_encodings():
     return get_known_encodings()
 
 
+def verify_face(unknown_encoding, name, known_encodings=None, tolerance=TOLERANCE):
+    """1:1 verification: is this face the person called `name`?
+
+    Returns (matched, distance). Used in personal mode, where the signed-in account says
+    who the face should be, so there is no need to search everyone. Comparing against one
+    person's photos instead of the whole class removes the chance of confusing two
+    look-alike classmates, and costs the same however many people are enrolled.
+    """
+    if known_encodings is None:
+        known_encodings = get_known_encodings()
+
+    encodings_list = known_encodings.get(name)
+    if not encodings_list:
+        return False, None  # linked to someone who has no enrolled photos
+
+    distance = float(np.min(face_recognition.face_distance(encodings_list, unknown_encoding)))
+    # <= to agree exactly with identify_face, which rejects only distances above tolerance
+    return distance <= tolerance, distance
+
+
 def identify_face(unknown_encoding, known_encodings=None, tolerance=TOLERANCE):
     """Find the closest known face to unknown_encoding.
 
