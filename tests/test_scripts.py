@@ -28,6 +28,7 @@ EVERY_SCRIPT = sorted(p.name for p in SCRIPTS.glob("*.py"))
 # the ones where argparse runs before anything else, so --help exits before any camera is
 # opened or any cache is rebuilt
 PARSES_ARGUMENTS = [
+    "benchmark_lfw.py",
     "calibrate_liveness.py",
     "collect_faces.py",
     "create_user.py",

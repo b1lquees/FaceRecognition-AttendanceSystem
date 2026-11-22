@@ -27,3 +27,7 @@ scripts/liveness-scores-*.json
 
 # anti-spoofing training images: real faces, never committed
 dataset/
+
+# LFW benchmark photos and results (downloaded from Kaggle; never committed)
+benchmark_data/
+benchmark_results/
