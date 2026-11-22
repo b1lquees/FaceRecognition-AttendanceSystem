@@ -388,10 +388,12 @@ that are easy to get wrong are in **[docs/security.md](docs/security.md)**.
   `KIOSK_MODE=0` is personal check-in, where a recognised face that does not belong to the
   signed-in account is refused — see
   [Kiosk mode vs. personal check-in](docs/security.md#kiosk-mode-vs-personal-check-in).
-- **Who, never where.** Recognition answers *who is in front of this camera* and has no way
-  to answer *where is this camera*. `CHECKIN_NETWORKS` restricts `/recognize` to listed
-  CIDRs, which moves the attack from anywhere with a browser to on the premises or
-  deliberately tunnelling in — a policy control rather than proof of presence. See
+- **Who, and in the room during a class.** Recognition answers *who is in front of this
+  camera*. During a class, phone check-in also needs the code on the classroom screen,
+  which changes every 30 seconds, followed by the student's face within 15 seconds, so
+  the phone has to be where the screen can be seen. `CHECKIN_NETWORKS` can further
+  restrict `/recognize` to listed CIDRs, such as the campus Wi-Fi — a policy control
+  rather than proof of presence. See
   [Where a check-in may come from](docs/security.md#where-a-check-in-may-come-from).
 - **Sessions and CSRF.** Session cookies are signed with a secret key that production
   refuses to start without, the session is cleared at login, its lifetime is an absolute
@@ -666,17 +668,18 @@ matters.
   that person present. It has been calibrated rather than left unmeasured, and the
   measurement said no — see [Anti-spoofing](#anti-spoofing). Calibrate your own camera
   before assuming it behaves the same.
-- **Personal mode proves who is at the camera, never where the camera is.** With
-  `KIOSK_MODE=0` a signed-in person checks themselves in from whatever browser they are
-  holding, and nothing in the request distinguishes the office from their kitchen. The
-  client's address is read twice on the way through — once to count requests, once to write
-  the audit line — and neither reading affects whether a row is recorded. Nothing in the
-  recognition path can close this: a stricter `TOLERANCE` does not help, because it is the
-  right person, and liveness does not help, because it is a live face. Kiosk mode has the
-  opposite gap and gets location for free, because there is one camera and somebody screwed
-  it to a wall. The constraint has to come from outside recognition, which is what
-  `CHECKIN_NETWORKS` is — and it is a policy control rather than proof, since a VPN back
-  into those networks passes. See
+- **Phone check-in proves the student can see the classroom screen, not that they are in
+  the room.** During a class, a phone must scan the code on the classroom screen, which
+  changes every 30 seconds with no grace period, and send the signed-in student's live
+  face within 15 seconds. That stops a student at home checking in alone, and stops a
+  forwarded code being used later. It does not stop a classmate in the room pointing a
+  video call at the screen: the student at home can read the code off the call and check
+  in within the limits, because it is the right person and a live face. Recognition cannot
+  close this gap — a stricter `TOLERANCE` and liveness both pass, correctly.
+  `CHECKIN_NETWORKS` narrows it to the campus network, but a VPN back into that network
+  still passes. Kiosk mode does not have this gap, because its camera is fixed in the
+  room. Outside a class, phone check-in has no code at all, so it proves only who, not
+  where. See
   [Where a check-in may come from](docs/security.md#where-a-check-in-may-come-from).
 - **Recognition runs synchronously in the request thread.** Detection uses a half-scale
   frame, but encoding cannot — roughly 1.2s per frame on modest hardware. Fine for one
