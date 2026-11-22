@@ -67,3 +67,25 @@ def test_ending_a_class(client, login, csrf):
 def test_an_unknown_class_is_a_404(client, login):
     login(username="teacher", role="admin")
     assert client.get("/classes/999").status_code == 404
+
+
+def test_the_register_shows_which_class_a_record_belongs_to(client, login, csrf):
+    from attendance.attendance_db import check_in
+
+    login(username="teacher", role="admin")
+    start(client, csrf, course="AI 301")
+    check_in("Alice", 0.3, current_session()["id"])
+    check_in("Bob", 0.3)  # the door camera, no class
+
+    today = client.get("/attendance/today").get_data(as_text=True)
+    assert "AI 301" in today
+
+    export = client.get("/attendance/export").get_data(as_text=True)
+    assert export.splitlines()[0] == "Name,Date,Time In,Time Out,Confidence,Class"
+    alice = next(line for line in export.splitlines() if line.startswith("Alice,"))
+    assert alice.endswith(",AI 301")
+
+    # and the archive can be searched by class name
+    searched = client.get("/attendance/all?q=AI+301").get_data(as_text=True)
+    assert "Alice" in searched
+    assert "Bob" not in searched

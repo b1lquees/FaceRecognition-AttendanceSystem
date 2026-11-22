@@ -26,13 +26,14 @@ def main():
         print("No attendance records." if not args.name else f"No records matching {args.name!r}.")
         return
 
-    print(f"{'Name':<24} {'Date':<12} {'In':<6} {'Out':<6} {'For':<8} Match")
-    print("-" * 68)
-    for name, date, time_in, time_out, confidence in rows:
+    print(f"{'Name':<24} {'Date':<12} {'In':<6} {'Out':<6} {'For':<8} {'Match':<6} Class")
+    print("-" * 80)
+    for name, date, time_in, time_out, confidence, course in rows:
         match = "n/a" if confidence is None else f"{confidence:.2f}"
         print(
             f"{name[:23]:<24} {date:<12} {short_time(time_in):<6} "
-            f"{short_time(time_out):<6} {duration(time_in, time_out):<8} {match}"
+            f"{short_time(time_out):<6} {duration(time_in, time_out):<8} {match:<6} "
+            f"{course or '-'}"
         )
 
     print(f"\n{len(rows)} record(s).")

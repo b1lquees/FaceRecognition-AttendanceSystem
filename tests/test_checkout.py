@@ -21,7 +21,7 @@ def test_checking_in_then_out_through_the_endpoint(client, login, csrf, frame, r
     assert post_frame(client, csrf, frame, "in").get_json()["status"] == "checked_in"
     assert post_frame(client, csrf, frame, "out").get_json()["status"] == "checked_out"
 
-    name, date, time_in, time_out, confidence = get_todays_attendance()[0]
+    name, date, time_in, time_out, confidence, course = get_todays_attendance()[0]
     assert time_in and time_out
 
 

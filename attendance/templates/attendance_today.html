@@ -48,6 +48,7 @@
             <thead>
                 <tr>
                     <th>Name</th>
+                    <th>Class</th>
                     <th>Date</th>
                     <th>In</th>
                     <th>Out</th>
@@ -56,10 +57,10 @@
                 </tr>
             </thead>
             <tbody>
-                <!-- each sqlite row is a 5-value tuple, so jinja unpacks it into
-                     these 5 names exactly like "a, b = (1, 2)" would.
+                <!-- each sqlite row is a 6-value tuple, so jinja unpacks it into
+                     these 6 names exactly like "a, b = (1, 2)" would.
                      time_out is None until the person checks out. -->
-                {% for name, date, time_in, time_out, confidence in records %}
+                {% for name, date, time_in, time_out, confidence, course in records %}
                 <tr>
                     <td class="cell-name">
                         <div class="person">
@@ -70,6 +71,8 @@
                             {{ name }}
                         </div>
                     </td>
+                    {# empty for a door-camera record taken while no class was running #}
+                    <td data-label="Class">{{ course or '—' }}</td>
                     <td class="mono" data-label="Date">{{ date }}</td>
                     <td class="mono" data-label="In">{{ time_in | short_time }}</td>
                     <td class="mono" data-label="Out">{{ time_out | short_time }}</td>

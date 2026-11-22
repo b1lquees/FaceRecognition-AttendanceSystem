@@ -378,6 +378,13 @@
                 setStatus("unknown", named + " has not checked in today");
                 return;
 
+            // phone mode while a class is running: this page has no code scanner, so
+            // point the student at the page that does
+            case "code_required":
+            case "code_expired":
+                setStatus("error", "A class is running: use the Check in page");
+                return;
+
             default:
                 setStatus("error", "Unexpected response from the server");
                 console.warn("unrecognised status:", data.status);

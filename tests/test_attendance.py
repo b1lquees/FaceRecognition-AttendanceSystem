@@ -59,7 +59,7 @@ def test_check_out_records_a_leaving_time(temp_db):
 
     assert check_out("TestPerson") == "checked_out"
 
-    name, date, time_in, time_out, confidence = get_todays_attendance()[0]
+    name, date, time_in, time_out, confidence, course = get_todays_attendance()[0]
     assert time_in is not None
     assert time_out is not None
 

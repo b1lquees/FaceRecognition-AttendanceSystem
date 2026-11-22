@@ -46,6 +46,7 @@ packages = ["attendance", "attendance.routes"]
 attendance = [
     "templates/*.html",
     "static/*.css",
+    "static/vendor/*",
     "models/*.onnx",
     "models/LICENSE-*.txt",
 ]

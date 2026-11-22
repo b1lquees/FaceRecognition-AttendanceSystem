@@ -25,7 +25,7 @@ def attendance_today():
     # anything passed here becomes a normal variable inside the html: {{ today }}
     today = local_date()
 
-    # a row is (name, date, time_in, time_out, confidence). counting the ones with no
+    # a row is (name, date, time_in, time_out, confidence, course). counting the ones with no
     # time_out here rather than in the template, because jinja cannot index a plain tuple
     # by position from inside a filter like selectattr
     still_here = sum(1 for row in records if not row[3])
@@ -78,7 +78,7 @@ def export_attendance():
     # two people export at once, and who deletes it afterwards.
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Name", "Date", "Time In", "Time Out", "Confidence"])  # header row
+    writer.writerow(["Name", "Date", "Time In", "Time Out", "Confidence", "Class"])  # header
     writer.writerows(records)  # each record is a tuple of values
 
     return Response(

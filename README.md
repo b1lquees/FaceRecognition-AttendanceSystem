@@ -11,7 +11,7 @@ browser's, so nothing needs installing on the machine people walk up to: frames 
 to the server, matched against enrolled faces, and written to a register that
 administrators can export as CSV.
 
-**Status:** working and tested, actively developed. 573 automated tests run on every push,
+**Status:** working and tested, actively developed. 619 automated tests run on every push,
 on Ubuntu and Windows, alongside `ruff` and a job that builds the Docker image and starts
 it. Anti-spoofing is measured but disabled — see [Anti-spoofing](#anti-spoofing) — and the
 constraints under [Known limitations](#known-limitations) are worth reading before
@@ -98,6 +98,10 @@ a throwaway database built for the capture, so nothing here is anybody's real at
 - **Anti-spoofing gate.** A liveness model can refuse photographs and screens before
   recognition runs. Ships disabled; calibrate before trusting it.
 - **Audit trail.** Every security-relevant action is logged with who did it and from where.
+- **Classes and phone check-in.** A teacher starts a class and the classroom screen shows
+  a QR code that changes every 30 seconds. Students scan it on their own phone and then
+  pass a face check within 15 seconds, so a forwarded code is no use to anyone outside the
+  room. Records are kept per class.
 - **Desktop mode.** `scripts/recognise_live.py` runs the same recognition in a native
   OpenCV window, for testing without a browser.
 
@@ -312,6 +316,10 @@ python scripts/build_encodings.py
 | `/admin/users` | **admin** | Approve or reject access requests |
 | `/admin/enrol` | **admin** | Add or remove a person |
 | `/account/password` | any user | Change your own password |
+| `/checkin` | any user | Phone check-in: scan the class code, then a face check |
+| `/checkin/code` | any user | `POST` endpoint that accepts a scanned or typed class code |
+| `/classes/` | **admin** | Start a class, and reopen the one that is running |
+| `/classes/<id>` | **admin** | The classroom screen: rotating QR code and 6-digit code |
 
 
 ### Checking in and out
@@ -329,6 +337,43 @@ record a five-minute day for someone who walked past the camera shortly after ar
 and would make "already checked in" impossible to report. Checking out before checking in
 reports *not checked in* and records nothing. A missing or unrecognised mode falls back to
 check-in, because an unwanted arrival is correctable and an unwanted departure is worse.
+
+### Classes and phone check-in
+
+For students checking in on their own phones, run in personal mode (`KIOSK_MODE=0`) and
+link each account to an enrolled person at `/admin/users`.
+
+1. The teacher opens **Classes**, enters a course name and length, and starts the class.
+   The page that opens goes on the classroom screen. It shows a QR code and the same code
+   as six digits, both changing every 30 seconds.
+2. A student opens **Check in** on their phone and scans the QR code (or types the digits).
+3. The phone switches to its front camera. The face has to match the signed-in student
+   within 15 seconds of the scan, and the record is saved under that class.
+
+| Rule | Why |
+| --- | --- |
+| Codes last 30 seconds, with no grace period | A code forwarded to someone outside the room expires before it is useful |
+| Face check within 15 seconds of the scan | The student has to be at their phone when the code is scanned |
+| One scan is one check-in | A scan cannot be reused for a second person |
+| The face is compared with the signed-in student only (1:1) | Two similar-looking classmates cannot be confused, and a refusal reveals nobody else |
+| 10 code attempts a minute per account | A 6-digit code cannot be guessed before it changes |
+
+The codes are standard TOTP, so the teacher can scan the small QR on the classroom screen
+into Google Authenticator or Microsoft Authenticator and read the code from their phone if
+the projector is off. Thirty seconds is the step those apps support.
+
+In kiosk mode the door camera needs no code, because it is fixed in the room; check-ins
+made while a class is running are saved under that class. With no class running,
+attendance is recorded once per person per day, as before. The register, the archive
+search and the CSV export all show which class a record belongs to.
+
+Phone cameras only work on `https://` pages, so phone check-in needs the HTTPS deployment
+under [Deployment](#deployment); on the server's own machine, `localhost` works too.
+
+> **After updating the code, run `python scripts/init_db.py` again.** The application never
+> changes the database by itself. That script adds any new tables and columns to an existing
+> database and keeps every record; without it, a page that needs a new table fails with
+> `no such table`.
 
 ## Security
 
@@ -582,6 +627,8 @@ is why the project has to be installed with `pip install -e .`.
 | `reset_password.py` | Set a new password for an account |
 | `webcam_test.py` | Check the camera works at all |
 | `calibrate_liveness.py` | Measure the anti-spoofing model, and price thresholds with `--compare` |
+| `collect_faces.py` | Save real and spoof face crops for training an anti-spoofing model |
+| `benchmark_lfw.py` | Compare dlib with ArcFace on the LFW benchmark (needs `pip install insightface`) |
 
 ### Tests
 
@@ -593,7 +640,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-573 tests covering attendance de-duplication, recognition of unknown faces, password
+619 tests covering attendance de-duplication, recognition of unknown faces, password
 hashing, route-level authentication and authorisation, schema migrations, timezone
 handling, enrolment validation, the stylesheet's own invariants and the calibration
 arithmetic. Every test runs against a throwaway database in pytest's temporary directory,
@@ -664,6 +711,10 @@ design accepts, these are things that were done or are still worth doing.
 
 - Face detection and encoding: [dlib](http://dlib.net/) via
   [`face_recognition`](https://github.com/ageitgey/face_recognition).
+- Class codes: [PyOTP](https://github.com/pyauth/pyotp). QR codes: drawn with
+  [qrcode](https://github.com/lincolnloop/python-qrcode) and read in the browser with
+  [jsQR](https://github.com/cozmo/jsQR), Apache 2.0, licence text in
+  `attendance/static/vendor/`.
 - Liveness model: [facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx),
   Apache 2.0. The weights and licence text are included in `attendance/models/`.
 

@@ -137,9 +137,11 @@ def get_todays_attendance():
 
     cursor.execute("""
         SELECT students.name, attendance.date, attendance.time_in,
-               attendance.time_out, attendance.confidence
+               attendance.time_out, attendance.confidence, sessions.course
         FROM attendance
         JOIN students on attendance.student_id = students.id
+        -- LEFT JOIN: a kiosk record has no class, and must still be listed (course is NULL)
+        LEFT JOIN sessions ON attendance.session_id = sessions.id
         WHERE attendance.date = ?
         ORDER BY attendance.time_in DESC
     """, (today,))
@@ -153,7 +155,7 @@ PAGE_SIZE = 50
 
 
 def search_filter(query):
-    """Build the WHERE clause for a search over names and dates.
+    """Build the WHERE clause for a search over names, dates and class names.
 
     Both, because searching only names would lose a use people reach for immediately:
     typing "2026-08" to see one month. The date column is text in "YYYY-MM-DD" form, so a
@@ -169,8 +171,9 @@ def search_filter(query):
     escaped = query.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     pattern = f"%{escaped}%"
     return (
-        "WHERE (students.name LIKE ? ESCAPE '\\' OR attendance.date LIKE ? ESCAPE '\\')",
-        (pattern, pattern),
+        "WHERE (students.name LIKE ? ESCAPE '\\' OR attendance.date LIKE ? ESCAPE '\\' "
+        "OR sessions.course LIKE ? ESCAPE '\\')",
+        (pattern, pattern, pattern),
     )
 
 
@@ -189,6 +192,7 @@ def archive_summary(query=""):
                COUNT(DISTINCT attendance.date)
         FROM attendance
         JOIN students ON attendance.student_id = students.id
+        LEFT JOIN sessions ON attendance.session_id = sessions.id
         {where}
     """, params).fetchone()
     conn.close()
@@ -208,9 +212,10 @@ def get_all_attendance(limit=None, offset=0, query=""):
     # LIMIT -1 is sqlite's "no limit", which keeps this one statement rather than two
     sql = f"""
         SELECT students.name, attendance.date, attendance.time_in,
-               attendance.time_out, attendance.confidence
+               attendance.time_out, attendance.confidence, sessions.course
         FROM attendance
         JOIN students ON attendance.student_id = students.id
+        LEFT JOIN sessions ON attendance.session_id = sessions.id
         {where}
         ORDER BY attendance.date DESC, attendance.time_in DESC
         LIMIT ? OFFSET ?
