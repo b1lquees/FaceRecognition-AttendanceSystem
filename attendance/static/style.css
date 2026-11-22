@@ -1680,6 +1680,12 @@ summary:focus-visible {
 /* --- class check-in screen ------------------------------------------------------
    Shown on a projector, so the code is sized to read from the back of a room. The QR
    sits on a white tile in both themes: scanners need dark modules on a light ground. */
+/* the phone check-in page shows the BACK camera while scanning the classroom screen;
+   mirroring that, as the front camera is mirrored, would move things the wrong way */
+.video-frame video.unmirrored {
+    transform: none;
+}
+
 .class-checkin {
     display: flex;
     flex-wrap: wrap;

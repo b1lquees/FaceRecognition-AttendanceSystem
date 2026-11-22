@@ -210,6 +210,13 @@ def checkin_code():
                     "seconds": SCAN_TO_FACE_SECONDS})
 
 
+@recognition_bp.route("/checkin")
+@login_required
+def checkin():
+    # the phone check-in page: scan the class code, then a short face check
+    return render_template("checkin.html", scan_seconds=SCAN_TO_FACE_SECONDS)
+
+
 @recognition_bp.route("/camera")
 @login_required
 def camera():

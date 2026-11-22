@@ -210,6 +210,10 @@
                href="{{ url_for('recognition.camera') }}">
                 <svg class="nav-icon" aria-hidden="true"><use href="#i-camera" /></svg>Camera
             </a>
+            <a class="nav-link {{ 'is-active' if active_page == 'checkin' }}"
+               href="{{ url_for('recognition.checkin') }}">
+                <svg class="nav-icon" aria-hidden="true"><use href="#i-qr" /></svg>Check in
+            </a>
 
             {% if session.role == 'admin' %}
             <p class="nav-label">Administration</p>

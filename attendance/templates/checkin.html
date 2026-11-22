@@ -1,0 +1,247 @@
+{% extends "base.html" %}
+
+{% block title %}Check in{% endblock %}
+{% set active_page = 'checkin' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Phone check-in</div>
+    <h1>Check in</h1>
+    <p class="subtitle">Scan the code on the classroom screen, then look at your camera</p>
+</header>
+
+<div class="card camera-card">
+    <div class="video-frame">
+        {# playsinline + muted are what let iPhones play the camera inside the page
+           instead of opening it fullscreen #}
+        <video id="video" autoplay playsinline muted></video>
+
+        <div id="status" class="status-pill status-idle">
+            <span class="status-dot"></span>
+            <span id="status-text">Camera off</span>
+        </div>
+    </div>
+
+    <div class="camera-controls">
+        <button id="start" class="btn btn-primary" type="button">Start check-in</button>
+
+        <div class="mode-switch" role="radiogroup" aria-label="Check in or out">
+            <label><input type="radio" name="mode" value="in" checked><span>Check in</span></label>
+            <label><input type="radio" name="mode" value="out"><span>Check out</span></label>
+        </div>
+    </div>
+</div>
+
+{# for anyone whose camera won't read the QR: type the six digits under it instead #}
+<div class="card">
+    <div class="card-head"><span class="card-title">Camera won't scan?</span></div>
+    <div class="card-body">
+        <form id="code-form" novalidate>
+            <label class="field">
+                <span>Code on the screen</span>
+                <input id="code-input" type="text" inputmode="numeric" maxlength="6"
+                       autocomplete="one-time-code" placeholder="6 digits">
+            </label>
+            <button class="btn" type="submit">Use this code</button>
+        </form>
+    </div>
+</div>
+
+{# never shown: a frame is copied here to read the QR or to send as a JPEG #}
+<canvas id="canvas" width="640" height="480" hidden></canvas>
+{% endblock %}
+
+{% block scripts %}
+{# saved inside the project because the site's security policy blocks outside scripts #}
+<script nonce="{{ csp_nonce() }}" src="{{ url_for('static', filename='vendor/jsQR.js') }}"></script>
+<script nonce="{{ csp_nonce() }}">
+    const CSRF_TOKEN = "{{ csrf_token() }}";
+    const CODE_URL = "{{ url_for('recognition.checkin_code') }}";
+    const RECOGNIZE_URL = "{{ url_for('recognition.recognize') }}";
+    const FACE_SECONDS = {{ scan_seconds }};  // how long the server allows after a scan
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const statusPill = document.getElementById("status");
+    const statusText = document.getElementById("status-text");
+    const startButton = document.getElementById("start");
+    let stream = null;
+    let scanning = false;
+
+    function setStatus(state, text) {
+        statusPill.className = "status-pill status-" + state;  // idle/looking/ok/unknown/error
+        statusText.textContent = text;
+    }
+
+    function mode() {
+        return document.querySelector('input[name="mode"]:checked').value;
+    }
+
+    async function post(url, body) {
+        // every POST carries the CSRF token as a header, like the camera page does
+        const response = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "X-CSRF-Token": CSRF_TOKEN },
+            body: JSON.stringify(body),
+        });
+        let data = {};
+        try { data = await response.json(); } catch (error) { /* not JSON: signed out */ }
+        return { response, data };
+    }
+
+    // --- cameras ---------------------------------------------------------------
+
+    function stopCamera() {
+        scanning = false;
+        if (stream) stream.getTracks().forEach(track => track.stop());  // light goes off
+        stream = null;
+        video.srcObject = null;
+    }
+
+    // "environment" is the back camera (for the screen), "user" the front (for the face).
+    // A laptop has only one, and the browser then simply uses it.
+    async function openCamera(facing) {
+        stopCamera();
+        stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: { ideal: facing }, width: { ideal: 640 }, height: { ideal: 480 } },
+        });
+        video.srcObject = stream;
+        await video.play();
+        // the stylesheet mirrors video like a mirror; only right for a camera facing you
+        video.classList.toggle("unmirrored", facing === "environment");
+    }
+
+    // --- step 1: scan the class QR ------------------------------------------------
+
+    async function startScan() {
+        if (!navigator.mediaDevices) {
+            // browsers only allow cameras on https:// pages (or localhost)
+            setStatus("error", "Camera needs a secure (https) page");
+            return;
+        }
+        try {
+            await openCamera("environment");
+        } catch (error) {
+            setStatus("error", "Camera blocked or unavailable");
+            return;
+        }
+        startButton.disabled = true;
+        setStatus("looking", "Point your camera at the classroom screen");
+        scanning = true;
+        scanTick();
+    }
+
+    function scanTick() {
+        if (!scanning) return;
+        if (video.readyState >= 2) {  // a frame is available
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0);
+            const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+            const found = jsQR(pixels.data, pixels.width, pixels.height,
+                               { inversionAttempts: "dontInvert" });
+            // ignore any QR that is not ours: ours always starts "FA:"
+            if (found && found.data.startsWith("FA:")) {
+                scanning = false;
+                sendCode(found.data);
+                return;
+            }
+        }
+        setTimeout(scanTick, 200);  // five looks a second is plenty and spares the battery
+    }
+
+    async function sendCode(text) {
+        setStatus("looking", "Checking the code…");
+        const { response, data } = await post(CODE_URL, { code: text });
+        if (response.ok && data.status === "ok") {
+            startFaceCheck(data.course, data.seconds || FACE_SECONDS);
+            return;
+        }
+        // wrong, expired, other class, no class, or too many tries: say why, try again
+        setStatus("error", data.error || "Code not accepted");
+        startButton.disabled = false;
+        stopCamera();
+    }
+
+    document.getElementById("code-form").addEventListener("submit", event => {
+        event.preventDefault();  // stay on the page instead of submitting a form
+        const typed = document.getElementById("code-input").value.trim();
+        if (/^\d{6}$/.test(typed)) {
+            stopCamera();
+            startButton.disabled = true;
+            sendCode(typed);
+        } else {
+            setStatus("error", "The code is 6 digits");
+        }
+    });
+
+    // --- step 2: the face check, within the server's time limit -----------------------
+
+    async function startFaceCheck(course, seconds) {
+        try {
+            await openCamera("user");
+        } catch (error) {
+            setStatus("error", "Front camera blocked or unavailable");
+            startButton.disabled = false;
+            return;
+        }
+        const deadline = Date.now() + (seconds - 1) * 1000;  // 1 s spare for the network
+        setStatus("looking", `Code accepted for ${course}: look at your camera`);
+        await new Promise(resolve => setTimeout(resolve, 800));  // let the camera settle
+
+        while (Date.now() < deadline) {
+            const finished = await sendFace(course);
+            if (finished) return;
+            await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+        finish("error", "Took too long: scan the code again");
+    }
+
+    // sends one frame; returns true once there is a final answer
+    async function sendFace(course) {
+        canvas.width = 640;
+        canvas.height = 480;
+        context.drawImage(video, 0, 0, 640, 480);
+        const { response, data } = await post(RECOGNIZE_URL, {
+            image: canvas.toDataURL("image/jpeg", 0.8),
+            mode: mode(),
+        });
+
+        if (response.status === 429) return false;  // briefly too many frames: keep trying
+        if (!response.ok) {
+            finish("error", data.error || "Signed out: sign in again");
+            return true;
+        }
+
+        const messages = {
+            checked_in: ["ok", `Checked in to ${course}`],
+            already_in: ["ok", `You were already checked in to ${course}`],
+            checked_out: ["ok", `Checked out of ${course}`],
+            already_out: ["ok", `You were already checked out of ${course}`],
+            not_checked_in: ["unknown", "You can't check out before checking in"],
+            mismatch: ["error", "This doesn't look like you: try again in better light"],
+            spoof: ["error", "Use your real face, not a photo or screen"],
+            not_linked: ["error", "Your account isn't linked to your photos: ask your teacher"],
+            liveness_error: ["error", "The face check isn't working: tell your teacher"],
+            code_required: ["error", "Scan the code again"],
+            code_expired: ["error", "Took too long: scan the code again"],
+        };
+        if (data.status in messages) {
+            finish(...messages[data.status]);
+            return true;
+        }
+        setStatus("looking", "No face found: hold the phone in front of you");  // no_face
+        return false;
+    }
+
+    function finish(state, text) {
+        stopCamera();
+        setStatus(state, text);
+        startButton.disabled = false;
+        startButton.textContent = "Check in again";
+    }
+
+    startButton.addEventListener("click", startScan);
+</script>
+{% endblock %}
