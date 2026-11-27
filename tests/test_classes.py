@@ -89,3 +89,19 @@ def test_the_register_shows_which_class_a_record_belongs_to(client, login, csrf)
     searched = client.get("/attendance/all?q=AI+301").get_data(as_text=True)
     assert "Alice" in searched
     assert "Bob" not in searched
+
+
+def test_an_ended_class_shows_no_code(client, login, csrf):
+    login(username="teacher", role="admin")
+    start(client, csrf)
+    session_id = current_session()["id"]
+    client.post(f"/classes/{session_id}/end", data={"_csrf_token": csrf})
+
+    page = client.get(f"/classes/{session_id}").get_data(as_text=True)
+    assert "This class has ended" in page
+    assert "student-qr" not in page  # no QR left to scan
+
+    # the screen's refresh is told the class is gone, so it reloads into the message
+    response = client.get(f"/classes/{session_id}/code")
+    assert response.status_code == 410
+    assert "code" not in response.get_json()

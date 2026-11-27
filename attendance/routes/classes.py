@@ -23,6 +23,7 @@ from ..sessions_db import (
     current_session,
     end_session,
     get_session,
+    is_running,
     seconds_left,
     start_session,
 )
@@ -82,6 +83,10 @@ def show(session_id):
     # the projector page. Everything is rendered here once, so it works even before the
     # page's script runs; the script then keeps the code fresh from code() below.
     class_session = get_or_404(session_id)
+    if not is_running(class_session):
+        # an ended class shows no code: students could not use it, and a screen still
+        # changing codes after the class is over looks like it should work
+        return render_template("class_show.html", cls=class_session, ended=True)
     return render_template(
         "class_show.html",
         cls=class_session,
@@ -97,6 +102,9 @@ def show(session_id):
 def code(session_id):
     # polled by the projector page every few seconds, so the QR changes with the code
     class_session = get_or_404(session_id)
+    if not is_running(class_session):
+        # 410 Gone: the page reloads, and shows that the class has ended
+        return jsonify(ended=True), 410
     response = jsonify(
         code=current_code(class_session),
         seconds=seconds_left(),

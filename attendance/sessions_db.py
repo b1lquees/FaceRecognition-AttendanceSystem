@@ -48,22 +48,28 @@ def get_session(session_id):
     return dict(zip(COLUMNS, row)) if row else None
 
 
+def is_running(session):
+    """Whether this class is on right now: started, and not yet at its end time.
+
+    Compared as real moments (parse) rather than as text, because the stored times carry a
+    UTC offset and two strings with different offsets do not sort in time order.
+    """
+    return parse(session["starts_at"]) <= now() < parse(session["ends_at"])
+
+
 def current_session():
     """The class running right now, or None.
 
-    Called on every camera frame, so it is one query. Compared as real moments (parse)
-    rather than as text, because the stored times carry a UTC offset and two strings with
-    different offsets do not sort in time order.
+    Called on every camera frame, so it is one query.
     """
     conn = connect()
     rows = conn.execute(
         f"SELECT {', '.join(COLUMNS)} FROM sessions ORDER BY id DESC LIMIT 50"
     ).fetchall()
     conn.close()
-    moment = now()
     for row in rows:  # newest first, so overlapping classes resolve to the latest
         session = dict(zip(COLUMNS, row))
-        if parse(session["starts_at"]) <= moment < parse(session["ends_at"]):
+        if is_running(session):
             return session
     return None
 

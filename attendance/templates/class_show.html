@@ -4,6 +4,21 @@
 {% set active_page = 'classes' %}
 
 {% block content %}
+{% if ended %}
+<header>
+    <div class="eyebrow">Class check-in</div>
+    <h1>{{ cls.course }}</h1>
+</header>
+
+<div class="card">
+    {# no code once the class is over: nobody can check in to it any more #}
+    <div class="empty">
+        <h2>This class has ended</h2>
+        <p>It ended at {{ cls.ends_at | short_time }}. Its attendance records are kept.</p>
+        <a class="btn btn-primary" href="{{ url_for('classes.index') }}">Start a new class</a>
+    </div>
+</div>
+{% else %}
 <header>
     <div class="eyebrow">Class check-in</div>
     <h1>{{ cls.course }}</h1>
@@ -41,9 +56,11 @@
     <input type="hidden" name="_csrf_token" value="{{ csrf_token() }}">
     <button class="btn btn-danger" type="submit">End class</button>
 </form>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}
+{% if not ended %}
 <script nonce="{{ csp_nonce() }}">
     const CODE_URL = "{{ url_for('classes.code', session_id=cls.id) }}";
     const codeEl = document.getElementById("code");
@@ -56,6 +73,7 @@
     async function refresh() {
         try {
             const response = await fetch(CODE_URL, { cache: "no-store" });
+            if (response.status === 410) return location.reload();  // the class has ended
             if (!response.ok) return;  // signed out or class gone: keep the last code shown
             const data = await response.json();
             codeEl.textContent = data.code;
@@ -73,4 +91,5 @@
         if (seconds % 5 === 0 || seconds === 30) refresh();
     }, 1000);
 </script>
+{% endif %}
 {% endblock %}
