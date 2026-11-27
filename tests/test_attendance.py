@@ -10,7 +10,7 @@ from attendance.attendance_db import (
     register_student,
 )
 from attendance.db import connect, get_db_path
-from attendance.recognition import identify_face
+from attendance.recognition import ENCODING_LENGTH, identify_face
 
 # the temp_db fixture lives in conftest.py so test_auth.py can share it
 
@@ -124,10 +124,13 @@ def test_register_student_is_idempotent(temp_db):
 
 # makes sure identify_face returns "Unknown" when there is no reasonable match
 def test_identify_face():
-    fake_encoding = np.random.rand(128)
+    # two random directions in 512 dimensions are almost unrelated: distance about 1
+    rng = np.random.default_rng(0)
+    fake_encoding, other = rng.normal(size=(2, ENCODING_LENGTH))
     known_encodings = {
-        "Bilquees": [np.random.rand(128)]
+        "Bilquees": [other / np.linalg.norm(other)]
     }
+    fake_encoding /= np.linalg.norm(fake_encoding)
     name, distance = identify_face(fake_encoding, known_encodings)
 
     assert name == "Unknown"

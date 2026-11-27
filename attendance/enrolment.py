@@ -16,9 +16,9 @@ from contextlib import contextmanager
 from pathlib import Path
 
 import cv2
-import face_recognition
 import numpy as np
 
+from . import arcface
 from .attendance_db import register_student
 from .config import env_path
 from .db import connect
@@ -151,14 +151,18 @@ def encode_photo(data, filename=""):
         raise EnrolmentError(f"{label}: not a readable image.")
 
     rgb = np.ascontiguousarray(bgr[:, :, ::-1])
-    encodings = face_recognition.face_encodings(rgb)
+    try:
+        faces = arcface.detect(rgb)  # each face's box and 5 landmarks
+    except arcface.ArcFaceUnavailable as error:
+        raise EnrolmentError(f"{label}: {error}") from error
 
-    if len(encodings) == 0:
+    if len(faces) == 0:
         raise EnrolmentError(f"{label}: no face found.")
-    if len(encodings) > 1:
-        raise EnrolmentError(f"{label}: {len(encodings)} faces found, need exactly one.")
+    if len(faces) > 1:
+        raise EnrolmentError(f"{label}: {len(faces)} faces found, need exactly one.")
 
-    return encodings[0]
+    _, landmarks = faces[0]
+    return arcface.encode(rgb, landmarks)  # 512 numbers
 
 
 def person_directory(name):
@@ -230,16 +234,17 @@ def remove_person(name):
 # How far apart two of a person's photos have to be, in face-distance, before the set is
 # teaching the recogniser more than one appearance.
 #
-# The scale is the same one identify_face() matches on, where TOLERANCE (0.5) is the line
-# between "this person" and "somebody else". Two frames grabbed a second apart sit around
-# 0.1; the same face in different light and at a different angle is usually past 0.25.
-# 0.15 is therefore well clear of "genuinely varied" and only fires on what is effectively
-# the same photograph submitted repeatedly.
+# The scale is the same one identify_face() matches on (1 minus cosine similarity), where
+# TOLERANCE (0.65) is the line between "this person" and "somebody else". The same photo
+# saved twice, or two frames grabbed a second apart, sit within a few hundredths; two
+# different photos of the same person on LFW are past 0.18 for 95% of pairs. 0.1 is
+# therefore well clear of "genuinely varied" and only fires on what is effectively the
+# same photograph submitted repeatedly.
 #
 # It warns rather than refuses. Five near-identical photos are worse than five varied ones
 # and still better than nothing, and an admin enrolling somebody from the only images they
 # have should not be blocked by a heuristic.
-MIN_USEFUL_SPREAD = 0.15
+MIN_USEFUL_SPREAD = 0.1
 
 
 def spread(encodings):
@@ -248,9 +253,10 @@ def spread(encodings):
         return 0.0
 
     stack = np.array(encodings)
-    # every pair at once by broadcasting. The sets are at most a few dozen encodings, so
-    # the square matrix costs nothing and saves a hand-written double loop.
-    distances = np.linalg.norm(stack[:, None, :] - stack[None, :, :], axis=-1)
+    # every pair at once: the embeddings have length 1, so stack @ stack.T holds the cosine
+    # similarity of each pair. The sets are at most a few dozen encodings, so the square
+    # matrix costs nothing and saves a hand-written double loop.
+    distances = 1 - stack @ stack.T
     return float(distances.max())
 
 

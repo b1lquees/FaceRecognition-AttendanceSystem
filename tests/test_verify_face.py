@@ -1,19 +1,22 @@
 import numpy as np
 
-from attendance.recognition import TOLERANCE, verify_face
+from attendance.recognition import ENCODING_LENGTH, TOLERANCE, verify_face
 
-# real distances, no stubs: a face encoding is 128 numbers, and distance is how far apart
-# two of them are. These build encodings at known distances from Alice's.
-
-ALICE = np.zeros(128)
-KNOWN = {"Alice": [ALICE], "Bob": [np.full(128, 0.2)]}
+# real distances, no stubs: a face encoding is 512 numbers of total length 1, and distance is
+# 1 minus the cosine similarity of two of them. These build encodings at known distances.
 
 
-def at_distance(d):
-    """An encoding exactly d away from ALICE."""
-    vector = np.zeros(128)
-    vector[0] = d
+def at_distance(d, axis=1):
+    """An encoding exactly d away from ALICE, turned towards `axis`."""
+    vector = np.zeros(ENCODING_LENGTH)
+    vector[0] = 1 - d
+    vector[axis] = np.sqrt(1 - (1 - d) ** 2)
     return vector
+
+
+ALICE = at_distance(0)
+BOB = at_distance(0.9, axis=2)
+KNOWN = {"Alice": [ALICE], "Bob": [BOB]}
 
 
 def test_a_close_face_is_verified():
@@ -28,13 +31,14 @@ def test_a_face_beyond_the_tolerance_is_refused():
 
 
 def test_exactly_at_the_tolerance_matches_like_identify_face_does():
-    matched, _ = verify_face(at_distance(TOLERANCE), "Alice", KNOWN)
+    # a hair inside, because 1 - cos(...) is not exact in floating point
+    matched, _ = verify_face(at_distance(TOLERANCE - 1e-9), "Alice", KNOWN)
     assert matched
 
 
 def test_only_the_claimed_person_is_compared():
     # this face is Bob's exactly, but the question is "is this Alice?" -- and it is not
-    matched, _ = verify_face(np.full(128, 0.2), "Alice", KNOWN)
+    matched, _ = verify_face(BOB, "Alice", KNOWN)
     assert not matched
 
 

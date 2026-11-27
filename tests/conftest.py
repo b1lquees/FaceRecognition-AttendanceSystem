@@ -82,12 +82,11 @@ def recognises(monkeypatch):
     def _recognises(name, distance=0.3):
         import attendance.routes.recognition as route
 
+        # one face: a box and 5 landmarks, then 512 numbers for it
         monkeypatch.setattr(
-            route.face_recognition, "face_locations", lambda image: [(0, 10, 10, 0)]
+            route.arcface, "detect", lambda image: [((0, 10, 10, 0), np.zeros((5, 2)))]
         )
-        monkeypatch.setattr(
-            route.face_recognition, "face_encodings", lambda image, locations: [np.zeros(128)]
-        )
+        monkeypatch.setattr(route.arcface, "encode", lambda image, landmarks: np.zeros(512))
         monkeypatch.setattr(route, "identify_face", lambda encoding, known: (name, distance))
         # personal mode asks "is this the signed-in person?" instead of "who is this?",
         # so the same pretend face answers yes only when it is the person being asked about

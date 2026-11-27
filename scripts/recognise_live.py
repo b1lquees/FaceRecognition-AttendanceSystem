@@ -8,9 +8,9 @@ rather than each having their own copy.
 """
 
 import cv2
-import face_recognition
 import numpy as np
 
+from attendance import arcface
 from attendance.attendance_db import check_in
 from attendance.recognition import get_known_encodings, identify_face
 
@@ -30,30 +30,17 @@ def main():
             print("Error: failed to grab frame")
             break
 
-        # detect on a quarter-size copy rather than the full frame. the detector has 16x
-        # less data to look at, which is the difference between a usable frame rate and a
-        # slideshow; the coordinates are scaled back up before anything is drawn.
-        small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-        # opencv stores colours as BGR, face_recognition expects RGB, so reverse the last
-        # dimension. ascontiguousarray copies it into fresh memory, which dlib requires.
-        rgb_small = np.ascontiguousarray(small_frame[:, :, ::-1])
+        # opencv stores colours as BGR, ArcFace expects RGB, so reverse the last dimension.
+        # ArcFace shrinks the frame for detection itself, so the full frame goes in.
+        rgb = np.ascontiguousarray(frame[:, :, ::-1])
 
-        face_locations = face_recognition.face_locations(rgb_small)
-        face_encodings = face_recognition.face_encodings(rgb_small, face_locations)
-
-        # zip pairs each location with its encoding
-        for (top, right, bottom, left), face_encoding in zip(face_locations, face_encodings):
-            name, distance = identify_face(face_encoding, known_encodings)
+        # each face's box and 5 landmarks, then the face as 512 numbers
+        for (top, right, bottom, left), landmarks in arcface.detect(rgb):
+            name, distance = identify_face(arcface.encode(rgb, landmarks), known_encodings)
 
             if name != "Unknown":
                 if check_in(name, distance) == "checked_in":  # only the first time today
                     print(f"Attendance marked for {name}")
-
-            # scale the coordinates back up to full-frame size
-            top *= 4
-            right *= 4
-            bottom *= 4
-            left *= 4
 
             colour = (0, 255, 0) if name != "Unknown" else (0, 0, 255)  # green known, red unknown
             cv2.rectangle(frame, (left, top), (right, bottom), colour, 2)

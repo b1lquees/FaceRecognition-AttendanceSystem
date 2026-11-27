@@ -6,17 +6,17 @@ import time
 from ipaddress import ip_address
 
 import cv2
-import face_recognition
 import numpy as np
 from flask import Blueprint, current_app, jsonify, render_template, request, session
 
+from .. import arcface
 from ..attendance_db import check_in, check_out, get_student_name
 from ..audit import audit
 from ..auth_db import get_linked_student_id
 from ..decorators import login_required
 from ..liveness import LivenessUnavailable, is_live
 from ..ratelimit import client_key, rate_limit
-from ..recognition import DETECTION_SCALE, get_known_encodings, identify_face, verify_face
+from ..recognition import get_known_encodings, identify_face, verify_face
 from ..sessions_db import current_session, verify_code
 
 # a blueprint keeps the recognition routes in their own module rather than one flat app file
@@ -310,49 +310,34 @@ def recognize():
     if frame is None:  # imdecode returns None rather than raising when the bytes aren't an image
         return jsonify({"error": "could not decode the image"}), 400
 
-    # opencv stores colours as BGR while face_recognition expects RGB, so reverse the last
-    # dimension. ascontiguousarray copies it into a fresh block of memory, which the
-    # underlying C library (dlib) requires.
+    # opencv stores colours as BGR while ArcFace (and the liveness model) expect RGB, so
+    # reverse the last dimension. ascontiguousarray copies it into one solid block of memory.
     rgb_frame = np.ascontiguousarray(frame[:, :, ::-1])
 
-    # Detect on a shrunk copy: the detector is the slow part and does not need the detail.
-    # At DETECTION_SCALE the frame carries a fraction of the pixels for the same answer, and
-    # the desktop viewer downscales by the same factor so both paths see the same input.
-    small = cv2.resize(rgb_frame, (0, 0), fx=DETECTION_SCALE, fy=DETECTION_SCALE)
-    small_locations = face_recognition.face_locations(small)  # (top, right, bottom, left) per face
+    # every face in the frame, surest first: its box and its 5 landmarks (eyes, nose, mouth)
+    try:
+        faces = arcface.detect(rgb_frame)
+    except arcface.ArcFaceUnavailable:
+        # the model files have not been downloaded on this machine
+        current_app.logger.exception("ArcFace models missing")
+        return jsonify({"error": "Face models missing: run scripts/download_arcface.py"}), 503
 
-    if len(small_locations) == 0:
+    if not faces:
         return result("no_face")
 
-    # Scale the boxes back up to full-frame coordinates, then encode from the ORIGINAL
-    # frame. Encoding from the shrunk copy would be faster still, but the encoder resizes
-    # each face to 150x150 internally, so feeding it a shrunk face throws away detail the
-    # 128-d vector depends on -- and a worse vector means worse matching.
-    scale_back = 1 / DETECTION_SCALE
-    face_locations = [
-        tuple(int(edge * scale_back) for edge in box) for box in small_locations
-    ]
-
-    # A frame can hold more than one face, and until now only the first was looked at --
-    # so at a shared camera the second person in shot was silently ignored, while the
-    # desktop viewer handled everyone. The two paths now agree.
-    #
-    # Capped because the work is per face: encoding and a liveness check each cost real
-    # time, and a frame containing a crowd photo would otherwise turn one request into
-    # fifty inferences, every 1.5 seconds.
+    # A frame can hold more than one face, and every one is handled, capped because the work
+    # is per face: encoding and a liveness check each cost real time, and a frame containing a
+    # crowd photo would otherwise turn one request into dozens of inferences.
     #
     # What actually happens to each face is handle_one_face(), including the liveness gate
     # and why it has to run before recognition rather than after.
     outcomes = []
-    for location in face_locations[:MAX_FACES_PER_FRAME]:
+    for location, landmarks in faces[:MAX_FACES_PER_FRAME]:
         # deliberately not named `outcome`: that is the function these come back from, and
         # binding it here would shadow it for the rest of this scope
-        face_outcome = handle_one_face(rgb_frame, location, data.get("mode"), class_id)
-        if face_outcome is not None:
-            outcomes.append(face_outcome)
-
-    if not outcomes:
-        return result("no_face")
+        outcomes.append(
+            handle_one_face(rgb_frame, location, landmarks, data.get("mode"), class_id)
+        )
 
     # one scan, one check-in: once the face has matched, the next check-in needs a new scan
     if class_id and any(item["status"] in MATCHED for item in outcomes):
@@ -361,11 +346,12 @@ def recognize():
     return jsonify({"status": summarise(outcomes), "results": outcomes})
 
 
-def handle_one_face(rgb_frame, location, mode, class_id=None):
+def handle_one_face(rgb_frame, location, landmarks, mode, class_id=None):
     """Everything that happens to a single detected face. Returns a result dict.
 
-    class_id is the class running now, so the record is saved under it; None when no class
-    is running, which keeps the once-a-day record.
+    location is the face's box, used for the liveness crop; landmarks are its 5 points,
+    used to line the face up for ArcFace. class_id is the class running now, so the record
+    is saved under it; None when no class is running, which keeps the once-a-day record.
     """
     # Liveness runs BEFORE recognition, deliberately. A photograph of an enrolled person
     # produces the same encoding the real person does, so identifying first and checking
@@ -392,14 +378,12 @@ def handle_one_face(rgb_frame, location, mode, class_id=None):
             audit("liveness.refused", label=label, score=f"{live_score:.2f}")
             return outcome("spoof")
 
-    encodings = face_recognition.face_encodings(rgb_frame, [location])
-    if not encodings:
-        return None  # detected but not encodable; nothing to say about it
+    encoding = arcface.encode(rgb_frame, landmarks)  # the face as 512 numbers
 
     if current_app.config["KIOSK_MODE"]:
         # Kiosk: the door camera does not know who is walking up, so it searches everyone
         # enrolled (1:N identification) and records whoever is closest.
-        name, distance = identify_face(encodings[0], get_known_encodings())
+        name, distance = identify_face(encoding, get_known_encodings())
         if name == "Unknown":
             return outcome("unknown", distance=distance)
     else:
@@ -411,7 +395,7 @@ def handle_one_face(rgb_frame, location, mode, class_id=None):
         if linked_student_id is None:
             return outcome("not_linked")
         name = get_student_name(linked_student_id)
-        matched, distance = verify_face(encodings[0], name, get_known_encodings())
+        matched, distance = verify_face(encoding, name, get_known_encodings())
         if not matched:
             # who the face actually was is never worked out, so it cannot leak: a refused
             # check-in tells the signed-in user nothing about who else was in view

@@ -160,8 +160,7 @@ def test_personal_mode_reports_an_unrecognised_face_as_not_you(
 def test_no_face_in_frame(client, login, csrf, frame, monkeypatch, app):
     import attendance.routes.recognition as route
 
-    monkeypatch.setattr(route.face_recognition, "face_locations", lambda image: [])
-    monkeypatch.setattr(route.face_recognition, "face_encodings", lambda image, locations: [])
+    monkeypatch.setattr(route.arcface, "detect", lambda image: [])
     sign_in_as(client, login, "alice", student_name="Alice")
 
     assert post_frame(client, csrf, frame).get_json()["status"] == "no_face"

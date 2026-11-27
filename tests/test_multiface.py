@@ -25,11 +25,9 @@ def sees(monkeypatch):
         import attendance.routes.recognition as route
 
         boxes = [(0, 10 * (i + 1), 10, 10 * i) for i in range(len(names))]
-        monkeypatch.setattr(route.face_recognition, "face_locations", lambda image: boxes)
-        monkeypatch.setattr(
-            route.face_recognition, "face_encodings",
-            lambda image, locations: [np.zeros(128) for _ in locations],
-        )
+        faces = [(box, np.zeros((5, 2))) for box in boxes]
+        monkeypatch.setattr(route.arcface, "detect", lambda image: faces)
+        monkeypatch.setattr(route.arcface, "encode", lambda image, landmarks: np.zeros(512))
         remaining = list(names)
         monkeypatch.setattr(
             route, "identify_face",

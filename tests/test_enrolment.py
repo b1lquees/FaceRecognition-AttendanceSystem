@@ -18,7 +18,23 @@ from attendance.enrolment import (
     validate_name,
     variety_warning,
 )
-from attendance.recognition import load_known_encodings, save_known_encodings
+from attendance.recognition import (
+    ENCODING_LENGTH,
+    load_known_encodings,
+    save_known_encodings,
+)
+
+
+def unit(d, axis=1):
+    """A length-1 encoding exactly d away (1 - cosine similarity) from unit(0).
+
+    Turned away from the first axis towards `axis`, so encodings turned towards different
+    axes are also apart from each other.
+    """
+    vector = np.zeros(ENCODING_LENGTH)
+    vector[0] = 1 - d
+    vector[axis] = np.sqrt(1 - (1 - d) ** 2)
+    return vector
 
 # the storage and face_photo fixtures live in conftest.py, shared with test_errors.py
 
@@ -271,29 +287,26 @@ def test_posting_without_a_csrf_token_is_refused(client, login, storage, temp_db
 # later looking like a broken recogniser rather than a thin enrolment.
 
 def test_spread_of_a_single_encoding_is_zero():
-    assert spread([np.zeros(128)]) == 0.0
+    assert spread([unit(0)]) == 0.0
 
 
 def test_spread_is_the_widest_gap_in_the_set():
-    a, b, c = np.zeros(128), np.zeros(128), np.zeros(128)
-    b[0] = 0.3
-    c[0] = 0.9
+    a, b, c = unit(0), unit(0.3), unit(0.9)
 
     # the widest pair is a-c, not either of the neighbouring ones
     assert spread([a, b, c]) == pytest.approx(0.9)
 
 
 def test_one_photo_is_called_out_as_thin():
-    advice = variety_warning("Alice", [np.zeros(128)])
+    advice = variety_warning("Alice", [unit(0)])
 
     assert advice is not None
     assert "one photo" in advice
 
 
 def test_near_identical_photos_are_called_out():
-    same = np.zeros(128)
-    barely_different = np.zeros(128)
-    barely_different[0] = 0.02       # about what two frames a second apart look like
+    same = unit(0)
+    barely_different = unit(0.02)    # about what two frames a second apart look like
 
     advice = variety_warning("Alice", [same, barely_different])
 
@@ -302,8 +315,7 @@ def test_near_identical_photos_are_called_out():
 
 
 def test_a_varied_set_draws_no_comment():
-    a, b = np.zeros(128), np.zeros(128)
-    b[0] = 0.4                       # the same face in different light and angle
+    a, b = unit(0), unit(0.3)        # the same face in different light and angle
 
     assert variety_warning("Alice", [a, b]) is None
 
@@ -340,7 +352,7 @@ def test_a_removal_and_an_enrolment_at_once_do_not_undo_each_other(
     only Alice, and the loser's save is built from it -- either Bob never existed or Alice
     came back from the dead, depending on which finished last.
     """
-    save_known_encodings({"Alice": [np.zeros(128)]}, recognition.ENCODINGS_FILE)
+    save_known_encodings({"Alice": [unit(0)]}, recognition.ENCODINGS_FILE)
 
     # widen the read-modify-write window so the two genuinely overlap, rather than the
     # test passing because they happened to miss each other on a fast machine
@@ -363,7 +375,7 @@ def test_a_removal_and_an_enrolment_at_once_do_not_undo_each_other(
         ready.wait()
         with encoding_write_lock():
             known = enrolment.load_known_encodings()
-            known.setdefault("Bob", []).append(np.zeros(128))
+            known.setdefault("Bob", []).append(unit(0))
             enrolment.save_known_encodings(known)
 
     threads = [threading.Thread(target=remover), threading.Thread(target=enroller)]

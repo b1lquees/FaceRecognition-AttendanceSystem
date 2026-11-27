@@ -1,12 +1,15 @@
 # we need to create a memory converting each face into a numerical representation face encoding
 # saving those in a dictionary to compare our picture against
-# so when later when a webcam detects a face it will create a 128 no encoding and compare it w the stored encodings
+# so when later when a webcam detects a face it will create a 512 no ArcFace encoding and compare it w the stored encodings
 
 import os  # allows python to work w folders and files on computers
 
-import face_recognition  # will detect faces and generate 128dim face encodings
-
-from attendance.enrolment import KNOWN_FACES_DIR, encoding_write_lock
+from attendance.enrolment import (  # the same code the enrolment page uses, so both agree
+    KNOWN_FACES_DIR,
+    EnrolmentError,
+    encode_photo,
+    encoding_write_lock,
+)
 from attendance.recognition import ENCODINGS_FILE, save_known_encodings
 
 # this is where the training images and processed encodings will be stored,
@@ -47,15 +50,18 @@ def main():
                 continue
 
             path = os.path.join(person_dir, filename)
-            image = face_recognition.load_image_file(path) #knownfaces/person_name/img1.jpg loading the image into memory as a numpy array
-            encodings = face_recognition.face_encodings(image) # converting the image into a 128 dimensional encoding
-
-            if len(encodings) != 1: # to validate if there is only one face detected if more than 1 skip after letting them know  that 2 faces in frame
-                print(f"{filename} ({person_name}): expected 1 face, found {len(encodings)} - skipping")
-                continue # skip on to next image
+            with open(path, "rb") as f:  # knownfaces/person_name/img1.jpg read as raw bytes
+                data = f.read()
+            try:
+                # finds exactly one face and turns it into 512 ArcFace numbers; refuses a photo
+                # with no face or several, the same rule as the enrolment page
+                encoding = encode_photo(data, f"{filename} ({person_name})")
+            except EnrolmentError as error:
+                print(f"{error} - skipping")
+                continue  # skip on to next image
 
             # and then add your encoding  to your list of encodings for that person
-            person_encodings.append(encodings[0])
+            person_encodings.append(encoding)
 
         if person_encodings: # if the list has atleast one encoding
             known_encodings[person_name] = person_encodings # store it

@@ -10,7 +10,6 @@ someone new would mean restarting the server.
 import os
 from pathlib import Path
 
-import face_recognition
 import numpy as np
 
 from .config import env_path
@@ -36,38 +35,32 @@ ENCODINGS_FILE = env_path("ENCODINGS_FILE", PROJECT_ROOT / "encodings.npz")
 NAMES_KEY = "names"
 ENCODINGS_KEY = "encodings"
 
-ENCODING_LENGTH = 128  # dlib's face encoder always produces a 128-d vector
+ENCODING_LENGTH = 512  # ArcFace always produces 512 numbers (dlib made 128)
 
-# the threshold that decides whether a detected face counts as a match. if the smallest
-# distance to a known face is at or below this, it is that person; above it, "Unknown".
+# the threshold that decides whether a detected face counts as a match. The distance between
+# two faces is 1 minus the cosine similarity of their ArcFace embeddings: 0 for identical,
+# about 1 for unrelated people. At or below this, it is that person; above it, "Unknown".
 #
-# lower is stricter: fewer false matches, but more failures to recognise someone whose
-# lighting or appearance has changed. higher (0.7+) is more forgiving and correspondingly
-# more likely to confuse two different people.
+# Lower is stricter: fewer false matches, but more failures to recognise someone whose
+# lighting or appearance has changed. The failure that matters here is marking the wrong
+# person present, which nobody reading the register would ever spot; a face that is not
+# recognised is obvious and fixed by trying again a second later.
 #
-# 0.5 rather than the 0.6 this started at, and than the 0.6 dlib suggests as a general
-# default. The failure that matters here is marking the wrong person present, which is a
-# false attendance record that nobody looking at the register would ever spot; a face that
-# is not recognised is obvious, immediate, and fixed by standing there another second and
-# a half. Two similar-looking people confusing the matcher is the specific thing this
-# guards against.
+# 0.65 (a similarity of 0.35) comes from the LFW benchmark (scripts/benchmark_lfw.py): it is
+# the loosest cut-off at which none of the 3,000 different-person pairs was accepted, on both
+# clean and classroom-like photos, while 99.3% of same-person pairs on clean photos and 89.9%
+# on degraded ones still matched from a single photo each. A real check-in compares against
+# several enrolment photos and retries every second, so it does better than one pair.
 #
 # The value is a policy rather than a property of the data: each row keeps the distance it
-# was accepted at, so tightening the cutoff leaves history containing distances the current
-# rule would reject. Those rows show as borderline in the match column and are not wrong --
-# they were accepted under the rule in force when they were recorded.
-TOLERANCE = 0.5
+# was accepted at. Rows recorded before the switch to ArcFace hold dlib distances, which were
+# on a different scale (cut-off 0.5), so they are not comparable with newer rows.
+TOLERANCE = 0.65
 
-# Face *detection* is the expensive step and it does not need full resolution, so frames
-# are shrunk before being searched. At 0.5 the detector looks at a quarter of the pixels.
-#
-# 0.5 rather than the 0.25 used by the desktop viewer: the browser sends 640x480, and a
-# quarter of that is 160x120, where a face at arm's length is small enough that the HOG
-# detector starts missing it. The desktop script gets away with 0.25 because it reads the
-# camera at its native, larger resolution.
-#
-# Encoding is done at full resolution regardless -- see routes/recognition.py. The
-# detector only needs to find roughly where a face is; the encoder needs the detail.
+# Used only by the command-line scripts that still find faces with dlib for cropping
+# (collect_faces.py, calibrate_liveness.py); the app detects with ArcFace, which resizes
+# frames itself. Detection is the slow part and does not need full resolution, so frames
+# are shrunk before being searched: at 0.5 the detector looks at a quarter of the pixels.
 DETECTION_SCALE = 0.5
 
 _known_encodings = None  # populated on first use by get_known_encodings()
@@ -90,6 +83,13 @@ def load_known_encodings(path=None):
     with np.load(path, allow_pickle=False) as data:
         names = data[NAMES_KEY]
         vectors = data[ENCODINGS_KEY]
+
+    if len(vectors) and vectors.shape[1] != ENCODING_LENGTH:
+        # an encodings.npz from before the switch to ArcFace: 128 dlib numbers per face, which
+        # cannot be compared with 512 ArcFace ones. Treated as empty rather than crashing.
+        print(f"{path} holds {vectors.shape[1]}-number encodings, not {ENCODING_LENGTH}: "
+              "run python scripts/build_encodings.py to rebuild it")
+        return {}
 
     grouped = {}
     for name, vector in zip(names, vectors):
@@ -191,6 +191,14 @@ def reload_known_encodings():
     return get_known_encodings()
 
 
+def face_distance(encodings_list, unknown_encoding):
+    """Distance from one face to each of a person's photos: 1 minus cosine similarity.
+
+    Embeddings have length 1, so their dot product is the cosine of the angle between them.
+    """
+    return 1 - np.asarray(encodings_list) @ unknown_encoding
+
+
 def verify_face(unknown_encoding, name, known_encodings=None, tolerance=TOLERANCE):
     """1:1 verification: is this face the person called `name`?
 
@@ -206,7 +214,7 @@ def verify_face(unknown_encoding, name, known_encodings=None, tolerance=TOLERANC
     if not encodings_list:
         return False, None  # linked to someone who has no enrolled photos
 
-    distance = float(np.min(face_recognition.face_distance(encodings_list, unknown_encoding)))
+    distance = float(np.min(face_distance(encodings_list, unknown_encoding)))
     # <= to agree exactly with identify_face, which rejects only distances above tolerance
     return distance <= tolerance, distance
 
@@ -226,7 +234,7 @@ def identify_face(unknown_encoding, known_encodings=None, tolerance=TOLERANCE):
     for name, encodings_list in known_encodings.items():  # .items() gives key and value
         # compares this one face against every stored photo of that person and returns
         # a list of distances, e.g. [0.42, 0.31, 0.38]
-        distances = face_recognition.face_distance(encodings_list, unknown_encoding)
+        distances = face_distance(encodings_list, unknown_encoding)
         min_distance = np.min(distances)  # their best-matching photo
 
         if best_distance is None or min_distance < best_distance:

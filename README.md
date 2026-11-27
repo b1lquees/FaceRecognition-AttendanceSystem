@@ -6,12 +6,12 @@ present, once per day, with arrival and departure times.
 [![Tests](https://github.com/b1lquees/FaceRecognition-AttendanceSystem/actions/workflows/tests.yml/badge.svg)](https://github.com/b1lquees/FaceRecognition-AttendanceSystem/actions/workflows/tests.yml)
 ![Python](https://img.shields.io/badge/python-3.12+-blue)
 
-Built with Flask, `face_recognition` (dlib), OpenCV and SQLite. The webcam is the
+Built with Flask, ArcFace (InsightFace's models, run with ONNX Runtime), OpenCV and SQLite. The webcam is the
 browser's, so nothing needs installing on the machine people walk up to: frames are posted
 to the server, matched against enrolled faces, and written to a register that
 administrators can export as CSV.
 
-**Status:** working and tested, actively developed. 619 automated tests run on every push,
+**Status:** working and tested, actively developed. 628 automated tests run on every push,
 on Ubuntu and Windows, alongside `ruff` and a job that builds the Docker image and starts
 it. Anti-spoofing is measured but disabled — see [Anti-spoofing](#anti-spoofing) — and the
 constraints under [Known limitations](#known-limitations) are worth reading before
@@ -111,7 +111,7 @@ a throwaway database built for the capture, so nothing here is anybody's real at
 | --- | --- |
 | Language | Python 3.12+ |
 | Web framework | Flask, built by an application factory |
-| Face detection and encoding | [`face_recognition`](https://github.com/ageitgey/face_recognition) over dlib, installed as prebuilt `dlib-bin` wheels |
+| Face detection and encoding | ArcFace: InsightFace's [`buffalo_l`](https://github.com/deepinsight/insightface) SCRFD detector and ResNet-50 recogniser, run with ONNX Runtime. dlib (via [`face_recognition`](https://github.com/ageitgey/face_recognition), prebuilt `dlib-bin` wheels) is still used by a few command-line scripts and the benchmark |
 | Image handling | OpenCV, NumPy |
 | Liveness | ONNX Runtime, running [facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx) |
 | Database | SQLite in WAL mode, with its schema and migrations in-tree |
@@ -130,6 +130,7 @@ FaceRecognition-AttendanceSystem/
 │   ├── templates/         base.html plus one file per page
 │   ├── static/            stylesheet and the client-side camera code
 │   ├── models/            anti-spoofing weights and their licence
+│   ├── arcface.py         finding faces and turning them into 512 numbers
 │   ├── recognition.py     identify_face() and the encoding cache
 │   ├── liveness.py        the anti-spoofing gate
 │   └── db.py              connection helper, schema and migrations
@@ -189,9 +190,13 @@ Create the database and an administrator account. The password is prompted for, 
 passed as an argument:
 
 ```bash
+python scripts/download_arcface.py
 python scripts/init_db.py
 python scripts/create_user.py alice --role admin
 ```
+
+`download_arcface.py` fetches the two face models (about 290 MB, once per computer). They
+are not in the repository: the recogniser alone is 166 MB, over GitHub's file limit.
 
 And a separate account for the camera station. `--role` defaults to `viewer`, which is the
 point: the station needs `/camera` and `/recognize`, and neither requires admin.
@@ -219,41 +224,55 @@ Open <http://127.0.0.1:5000/login>, sign in, enrol someone at `/admin/enrol`, an
 
 ```mermaid
 flowchart TD
-    A[known_faces/&lt;person&gt;/*.jpg] -->|scripts/build_encodings.py| B[encodings.npz<br/>128-d vectors per person]
+    A[known_faces/&lt;person&gt;/*.jpg] -->|scripts/build_encodings.py| B[encodings.npz<br/>512-d ArcFace vectors per person]
     C[Browser webcam] -->|canvas.toDataURL - base64 JPEG| D[POST /recognize]
     B --> E
     D --> L{liveness:<br/>real face?}
     L -->|no| S[Spoof - refused]
-    L -->|yes| E[face_recognition<br/>detect + encode]
-    E -->|Euclidean distance vs. every known encoding| F{closest distance<br/>&lt; 0.5?}
+    L -->|yes| E[ArcFace<br/>detect, align, encode]
+    E -->|cosine distance vs. every known encoding| F{closest distance<br/>&le; 0.65?}
     F -->|yes| G[check_in / check_out]
     F -->|no| H[Unknown]
     G --> I[(attendance.db)]
 ```
 
-Each face becomes a **128-dimensional vector**. Two photos of the same person produce
-vectors that sit close together in that space; different people produce vectors far apart.
-Identification is therefore finding the nearest stored encoding and checking it is near
-enough — the `TOLERANCE` constant in
-[`attendance/recognition.py`](attendance/recognition.py), set to `0.5`.
+Each face is found with its 5 landmarks (eyes, nose tip, mouth corners), turned and scaled
+so those land in a standard position, and becomes a **512-dimensional vector** of length 1.
+Two photos of the same person produce vectors pointing in nearly the same direction;
+different people produce vectors far apart. The distance between two faces is 1 minus the
+cosine similarity of their vectors, and identification is finding the nearest stored
+encoding and checking it is near enough — the `TOLERANCE` constant in
+[`attendance/recognition.py`](attendance/recognition.py), set to `0.65`.
 
 Lower is stricter, and the trade is the standard biometric one. Raising the bar for a
 match lowers the **false acceptance rate** — the wrong person matched to a name — and
 raises the **false rejection rate** — the right person refused. The two move in opposite
 directions, and no threshold removes both.
 
-`0.5` sits on the strict side of that trade, because the two errors do not cost the same
-here. A false rejection is obvious to the person standing there and costs one 1.5-second
-retry; a false acceptance is a wrong name in the register that nobody reading it would
-ever spot.
+`0.65` comes from the LFW benchmark below: it is the loosest cut-off at which none of the
+3,000 different-person pairs was accepted, on clean photos or on photos degraded to look
+like a phone in a dim room. It sits on the strict side because the two errors do not cost
+the same here. A false rejection is obvious to the person standing there and costs a
+one-second retry; a false acceptance is a wrong name in the register that nobody reading
+it would ever spot.
 
 The match column grades a distance rather than just accepting it, and the grades are
-fractions of the tolerance rather than fixed numbers — 0.45 is a comfortable match at a
-cutoff of 0.6 and a near miss at 0.5. At the current `0.5` that puts strong at roughly 0.33
-and below, fair up to roughly 0.42, and borderline above that. Rows recorded under the
-older, more forgiving 0.6 cutoff are still in the history, which is why distances between
-0.5 and 0.6 appear there and show as borderline: they are not wrong, they were accepted
-under the rule in force at the time.
+fractions of the tolerance rather than fixed numbers. At `0.65` that puts strong at roughly
+0.43 and below, fair up to roughly 0.54, and borderline above that. Rows recorded before
+the switch to ArcFace hold dlib distances, which were on a different scale (cut-off 0.5),
+so they are not comparable with newer rows.
+
+### Why ArcFace and not dlib
+
+`scripts/benchmark_lfw.py` runs both on the 6,000 LFW pairs, 10-fold cross-validated, on
+the photos as they are and with the second photo of each pair shrunk, darkened, given
+sensor noise and saved as a low-quality JPEG:
+
+| | dlib | ArcFace |
+| --- | --- | --- |
+| Accuracy, clean | 98.72% | 99.85% |
+| Accuracy, classroom-like | 94.47% | 99.37% |
+| Real matches accepted when only 1 in 1,000 impostors may pass (TAR@FAR 0.1%), classroom-like | 54.6% | 98.9% |
 
 ## Performance
 
@@ -263,14 +282,14 @@ are here to size a deployment, not to claim throughput: all of them describe one
 | | Value | Where it comes from |
 | --- | --- | --- |
 | Frame interval | 1.5 s | `INTERVAL_MS` in `camera.html` — how often the browser posts a frame |
-| Recognition cost | ~1.2 s per frame | Detection runs on a half-scale frame; encoding cannot, and dominates |
-| Match tolerance | 0.5 | `TOLERANCE` in [`attendance/recognition.py`](attendance/recognition.py) |
+| Recognition cost | ~0.25 s per face | ArcFace detection (~0.12 s) plus alignment and encoding (~0.12 s), on a laptop CPU |
+| Match tolerance | 0.65 | `TOLERANCE` in [`attendance/recognition.py`](attendance/recognition.py) |
 | `/recognize` limit | 60 frames per minute | Sized for one camera; counted per account in personal mode |
 | Archive page size | 50 rows | Paged and searched in SQL rather than in the browser |
 | Worker timeout | 60 s | gunicorn `--timeout`, which reaps a worker wedged mid-request |
 | Session lifetime | 7 days | An absolute ceiling from login; traffic does not extend it |
 
-Recognition runs synchronously in the request thread, so that ~1.2 seconds is a worker
+Recognition runs synchronously in the request thread, so that ~0.25 seconds is a worker
 occupied. One camera posting a frame every 1.5 seconds fits comfortably; concurrent users
 do not — see [Known limitations](#known-limitations).
 
@@ -594,6 +613,7 @@ attendance/
     auth_db.py              password hashing, approval, user verification
     decorators.py           @login_required / @admin_required
     security.py             CSRF token generation and checking
+    arcface.py              ArcFace face detection, alignment and encoding
     recognition.py          identify_face() and the encoding cache
     liveness.py             anti-spoofing gate
     enrolment.py            adding a person from the browser
@@ -622,7 +642,8 @@ is why the project has to be installed with `pip install -e .`.
 | --- | --- |
 | `init_db.py` | Create the tables (safe to re-run) |
 | `create_user.py` | Add an account, prompting for the password |
-| `build_encodings.py` | Rebuild the encoding cache from `known_faces/` |
+| `download_arcface.py` | Download the two ArcFace model files (run once per computer) |
+| `build_encodings.py` | Rebuild the encoding cache from `known_faces/` (run after switching to ArcFace, too) |
 | `recognise_live.py` | Desktop webcam viewer, same recognition without a browser |
 | `peek_db.py` | Print every attendance row |
 | `reset_attendance.py` | Delete one person's records, by name |
@@ -642,7 +663,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-619 tests covering attendance de-duplication, recognition of unknown faces, password
+628 tests covering attendance de-duplication, recognition of unknown faces, password
 hashing, route-level authentication and authorisation, schema migrations, timezone
 handling, enrolment validation, the stylesheet's own invariants and the calibration
 arithmetic. Every test runs against a throwaway database in pytest's temporary directory,
@@ -681,9 +702,9 @@ matters.
   room. Outside a class, phone check-in has no code at all, so it proves only who, not
   where. See
   [Where a check-in may come from](docs/security.md#where-a-check-in-may-come-from).
-- **Recognition runs synchronously in the request thread.** Detection uses a half-scale
-  frame, but encoding cannot — roughly 1.2s per frame on modest hardware. Fine for one
-  camera; it will not hold up under concurrent users.
+- **Recognition runs synchronously in the request thread.** About 0.25 s per face on a
+  laptop CPU. Fine for a classroom; a whole school checking in at once would need more
+  workers or a job queue.
 - **SQLite suits a single classroom-sized deployment.** WAL mode and a busy timeout remove
   the everyday contention, but this is not a multi-site or high-concurrency design.
 - **Recognition accuracy depends heavily on enrolment photo quality.**
@@ -712,8 +733,11 @@ design accepts, these are things that were done or are still worth doing.
 
 ## Credits
 
-- Face detection and encoding: [dlib](http://dlib.net/) via
-  [`face_recognition`](https://github.com/ageitgey/face_recognition).
+- Face detection and encoding: [InsightFace](https://github.com/deepinsight/insightface)'s
+  `buffalo_l` models (SCRFD detector, ArcFace recogniser); the pre- and post-processing in
+  `attendance/arcface.py` follows InsightFace's MIT-licensed code. The model weights are for
+  non-commercial research use only. Earlier versions, the benchmark and some scripts use
+  [dlib](http://dlib.net/) via [`face_recognition`](https://github.com/ageitgey/face_recognition).
 - Class codes: [PyOTP](https://github.com/pyauth/pyotp). QR codes: drawn with
   [qrcode](https://github.com/lincolnloop/python-qrcode) and read in the browser with
   [jsQR](https://github.com/cozmo/jsQR), Apache 2.0, licence text in
@@ -726,7 +750,8 @@ design accepts, these are things that were done or are still worth doing.
 MIT -- see [LICENSE](LICENSE). Use it, change it, ship it; keep the copyright notice, and
 it comes with no warranty.
 
-Two things the licence does not cover. The anti-spoofing weights in
+Three things the licence does not cover. The ArcFace models (downloaded, not in the
+repository) are InsightFace's, for non-commercial research use only. The anti-spoofing weights in
 `attendance/models/` are somebody else's work under Apache 2.0, and stay under it --
 `LICENSE-antispoof.txt` travels with them for that reason. And the licence says nothing
 about the data: face images, encodings and the attendance database are personal data
