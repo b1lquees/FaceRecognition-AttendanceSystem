@@ -1,36 +1,36 @@
-venv/
-__pycache__/
-.pytest_cache/
-*.pyc
-attendance.db
-# the WAL sidecars, which appear next to any database opened since journal_mode=WAL
-attendance.db-wal
-attendance.db-shm
-encodings.npz
-encodings.npz.tmp*
-encodings.pkl
-known_faces/
-notes.txt
-
-.env
-.flask_secret_dev
-*.bak
-
-
-# python packaging build artefacts
-*.egg-info/
-build/
-dist/
-
-# personal calibration measurements, not shared
-scripts/liveness-scores-*.json
+venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+attendance.db
+# the WAL sidecars, which appear next to any database opened since journal_mode=WAL
+attendance.db-wal
+attendance.db-shm
+encodings.npz
+encodings.npz.tmp*
+encodings.pkl
+known_faces/
+notes.txt
+
+.env
+.flask_secret_dev
+*.bak
+
+
+# python packaging build artefacts
+*.egg-info/
+build/
+dist/
+
+# personal calibration measurements, not shared
+scripts/liveness-scores-*.json
 
 # anti-spoofing training images: real faces, never committed
-dataset/
-
-# LFW benchmark photos and results (downloaded from Kaggle; never committed)
-benchmark_data/
-benchmark_results/
+dataset/
+
+# LFW benchmark photos and results (downloaded from Kaggle; never committed)
+benchmark_data/
+benchmark_results/
 
 # ArcFace models: downloaded by scripts/download_arcface.py, too big for GitHub
 attendance/models/arcface/
