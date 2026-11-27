@@ -314,6 +314,12 @@ class TestingConfig(Config):
     # against this class.
     LIVENESS_ENABLED = False
 
+    # Fixed rather than read from the environment, so the suite gives the same answer whatever
+    # the terminal it runs in: a `set KIOSK_MODE=0` left over from trying phone check-in used
+    # to fail 19 tests with "not_linked". Tests that need personal mode set it themselves.
+    KIOSK_MODE = True
+    CHECKIN_NETWORKS = ()
+
     @classmethod
     def secret_key(cls):
         # fake: tests must never depend on the developer's real key,and must never create the
