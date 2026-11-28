@@ -14,6 +14,7 @@ notes.txt
 
 .env
 .flask_secret_dev
+.flask_secret_prod
 *.bak
 
 

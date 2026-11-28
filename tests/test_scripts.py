@@ -32,6 +32,7 @@ PARSES_ARGUMENTS = [
     "calibrate_liveness.py",
     "collect_faces.py",
     "create_user.py",
+    "demo.py",
     "peek_db.py",
     "reset_attendance.py",
     "reset_password.py",

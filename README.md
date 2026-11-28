@@ -515,23 +515,26 @@ Phone cameras only work on `https://` pages, so phones cannot use the laptop's p
 it gives the laptop a temporary `https://….trycloudflare.com` address with a real
 certificate, so any phone on any network opens it with no warning and no setup.
 
-Install `cloudflared` once (`winget install --id Cloudflare.cloudflared`), then in two
-Command Prompts, with the venv on in the first:
+Install `cloudflared` once (`winget install --id Cloudflare.cloudflared`). Then
+double-click **`start.bat`** in the project folder, or run it from Command Prompt:
 
 ```bat
-scripts\serve_https.bat
+start.bat          :: phone check-in
+start.bat kiosk    :: door camera
 ```
 
-```bat
-cloudflared tunnel --url http://localhost:5000
-```
+It brings the database up to date, downloads the ArcFace models if they are missing, opens
+the tunnel, prints the `https://` address with a QR code phones can scan to open it, and
+opens the Classes page on the laptop. The app runs the way a deployment should
+([`scripts/demo.py`](scripts/demo.py)): production settings (no debugger, login cookie
+over HTTPS only), waitress instead of Flask's development server, listening on
+`127.0.0.1` only, and trusting cloudflared's headers for each phone's address. **Ctrl+C**
+stops the app and the tunnel together.
 
-`serve_https.bat` runs the app the way a deployment should: production settings (no
-debugger, login cookie over HTTPS only), a fresh secret key, waitress instead of Flask's
-development server, listening on `127.0.0.1` only, and trusting cloudflared's headers for
-each phone's address. It starts in phone check-in mode; `set KIOSK_MODE=1` first for the
-door camera. The tunnel address changes every time `cloudflared` starts, and while both
-are running anyone with it can reach the sign-in page, so stop both after the demo.
+The address changes every time, and while it runs anyone with it can reach the sign-in
+page, so use strong passwords and stop it after the demo. A permanent address needs a
+free Cloudflare account and a domain name (a "named tunnel"); for a demo the quick tunnel
+is enough.
 
 ### With compose (recommended)
 
@@ -669,7 +672,7 @@ is why the project has to be installed with `pip install -e .`.
 | `init_db.py` | Create the tables (safe to re-run) |
 | `create_user.py` | Add an account, prompting for the password |
 | `download_arcface.py` | Download the two ArcFace model files (run once per computer) |
-| `serve_https.bat` | Windows: run the app for phones over HTTPS, with `cloudflared` (see [Deployment](#deployment)) |
+| `demo.py` | Run everything for the class demo, over HTTPS for phones; started by `start.bat` (see [Deployment](#deployment)) |
 | `build_encodings.py` | Rebuild the encoding cache from `known_faces/` (run after switching to ArcFace, too) |
 | `recognise_live.py` | Desktop webcam viewer, same recognition without a browser |
 | `peek_db.py` | Print every attendance row |
