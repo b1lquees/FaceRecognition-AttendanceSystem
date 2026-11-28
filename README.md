@@ -114,7 +114,7 @@ a throwaway database built for the capture, so nothing here is anybody's real at
 | Web framework | Flask, built by an application factory |
 | Face detection and encoding | ArcFace: InsightFace's [`buffalo_l`](https://github.com/deepinsight/insightface) SCRFD detector and ResNet-50 recogniser, run with ONNX Runtime. dlib (via [`face_recognition`](https://github.com/ageitgey/face_recognition), prebuilt `dlib-bin` wheels) is still used by a few command-line scripts and the benchmark |
 | Image handling | OpenCV, NumPy |
-| Liveness | ONNX Runtime, running [facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx) |
+| Liveness | ONNX Runtime, running our own MobileNetV2 fine-tuned on LCC-FASD ([notebook](notebooks/antispoof_training.ipynb)) |
 | Database | SQLite in WAL mode, with its schema and migrations in-tree |
 | Frontend | Server-rendered Jinja templates, one hand-written stylesheet, no build step |
 | WSGI server | gunicorn in the image, waitress on Windows, Flask's own server in development |
@@ -473,17 +473,44 @@ Face images and face encodings are biometric data about real people, so:
 
 Recognition alone cannot tell a person from a photograph of them: a printed photo produces
 the same encoding the real person does, so it checks them in. A liveness model
-([facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx), Apache 2.0,
-weights and licence in `attendance/models/`) runs **before** recognition and refuses
-spoofs, so a photo is never identified at all — which is also why a refusal does not report
-whose photo it was.
+runs **before** recognition and refuses spoofs, so a photo is never identified at all —
+which is also why a refusal does not report whose photo it was.
+
+The model is our own (`attendance/models/antispoof_ours.onnx`): MobileNetV2 pretrained on
+ImageNet and fine-tuned on the LCC-FASD dataset in
+[notebooks/antispoof_training.ipynb](notebooks/antispoof_training.ipynb). On LCC-FASD's
+test set (389 real, 3,377 spoof) at threshold 0 it compares with the pretrained
+[facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx) model it
+replaced (Apache 2.0, still in `attendance/models/` with its licence):
+
+| | spoofs let in (APCER) | real refused (BPCER) | ACER |
+| --- | --- | --- | --- |
+| facenox (pretrained) | 48.0% | 7.3% | 27.6% |
+| **ours** | **11.7%** | **3.3%** | **7.5%** |
 
 **It ships disabled**, because the right threshold depends on your camera and your lighting,
-and nobody can pick it for you from the outside.
+and nobody can pick it for you from the outside. The threshold with the lowest error on
+LCC-FASD's test set, `+1`, refused every real face from this laptop's webcam: a dataset's
+best threshold does not carry over to a different camera.
 
-### What calibration found here
+### Our model on this laptop's webcam
 
-On the laptop webcam this was developed on, 40 samples each, a phone screen as the spoof:
+20 real frames and 20 of a phone screen, cropped and resized exactly as the app does:
+
+| | min | median | max |
+| --- | --- | --- | --- |
+| Real face | −2.31 | **−0.72** | +0.22 |
+| Phone screen | | | −3.84 |
+
+Those separate, with a gap between −3.84 and −2.31, but only 20 frames each from one
+sitting, and not through the live detector: confirm on the live app with
+`scripts/calibrate_liveness.py` (below) before switching it on. Training resized faces with
+PIL, the app with OpenCV; on these frames the two scores differed by at most 0.85 (median
+about 0.2), small next to that gap.
+
+### What calibration found with the facenox model
+
+On the same webcam, 40 samples each, a phone screen as the spoof:
 
 | | min | median | max |
 | --- | --- | --- | --- |
@@ -493,8 +520,8 @@ On the laptop webcam this was developed on, 40 samples each, a phone screen as t
 **Those ranges overlap, and the overlap is fatal.** Half the genuine frames score below
 the best spoof frame. Blocking every spoof needs a threshold of `+1.06`, which refuses
 **20 of 40 real frames**; leaving the default `0.0` refuses 40% of real frames *and*
-admits 8% of spoof frames. No setting on this camera is worth having, so the feature stays
-off.
+admits 8% of spoof frames. No setting on this camera was worth having with that model,
+which is why we trained our own.
 
 Two findings from that measurement generalise: no middle threshold helps, because an
 attacker holding up a phone simply retries until a frame passes; and the score moves more
@@ -805,8 +832,10 @@ design accepts, these are things that were done or are still worth doing.
   [qrcode](https://github.com/lincolnloop/python-qrcode) and read in the browser with
   [jsQR](https://github.com/cozmo/jsQR), Apache 2.0, licence text in
   `attendance/static/vendor/`.
-- Liveness model: [facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx),
-  Apache 2.0. The weights and licence text are included in `attendance/models/`.
+- Liveness model: our own, fine-tuned from torchvision's ImageNet MobileNetV2 (BSD-3-Clause)
+  on the LCC-FASD dataset. The earlier pretrained
+  model, [facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx),
+  Apache 2.0, is kept in `attendance/models/` with its licence text for comparison.
 
 ## Licence
 
@@ -819,4 +848,4 @@ repository) are InsightFace's, for non-commercial research use only. The anti-sp
 `LICENSE-antispoof.txt` travels with them for that reason. And the licence says nothing
 about the data: face images, encodings and the attendance database are personal data
 about real people, none of it is in this repository, and none of it should be. Whether
-you may enrol someone is a question about consent and local law, not about this file.
+you may enrol someone is a question about consent and local law, not about this file.
