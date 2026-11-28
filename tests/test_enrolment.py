@@ -109,7 +109,7 @@ def test_an_oversized_file_is_refused():
 
 
 # a valid image with nobody in it teaches the system nothing
-def test_an_image_with_no_face_is_refused():
+def test_an_image_with_no_face_is_refused(arcface_models):
     with pytest.raises(EnrolmentError, match="no face"):
         encode_photo(jpeg_bytes(), "blank.jpg")
 

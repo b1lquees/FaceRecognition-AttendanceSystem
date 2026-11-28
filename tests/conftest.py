@@ -115,6 +115,19 @@ def storage(tmp_path, monkeypatch):
 
 
 @pytest.fixture
+def arcface_models():
+    """Skip a test that needs the real ArcFace models when they are not downloaded.
+
+    They are not in git (one is 166 MB); CI downloads them, and on a computer that has
+    not run scripts/download_arcface.py these tests are skipped rather than failed.
+    """
+    from attendance import arcface
+
+    if not (arcface.DETECTOR_FILE.exists() and arcface.RECOGNISER_FILE.exists()):
+        pytest.skip("ArcFace models not downloaded (python scripts/download_arcface.py)")
+
+
+@pytest.fixture
 def face_photo():
     """A real JPEG containing exactly one detectable face.
 

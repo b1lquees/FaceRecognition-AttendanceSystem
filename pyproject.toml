@@ -61,6 +61,8 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+# Colab notebooks: shell commands and one-cell-at-a-time imports, not project code
+extend-exclude = ["notebooks"]
 
 [tool.ruff.lint]
 # E/W  pycodestyle  - layout mistakes
