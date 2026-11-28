@@ -4,7 +4,8 @@
     start.bat kiosk      door camera
 
 1. makes sure the database is up to date and the ArcFace models are downloaded
-2. opens a Cloudflare quick tunnel and prints its https:// address, with a QR code for phones
+2. opens a Cloudflare quick tunnel and, once it works, prints its https:// address with a
+   QR code for phones
 3. runs the app with production settings, and opens the Classes page on this laptop
 
 Press Ctrl+C to stop; the tunnel closes with it, and its address stops working.
@@ -19,6 +20,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -54,6 +56,27 @@ def show_address(url):
     print("Press Ctrl+C here to stop.\n")
 
 
+def wait_until_reachable(url, needed=3, limit=60):
+    """Wait until the new address serves the stylesheet several times in a row.
+
+    A brand-new tunnel can answer the page but fail the files it loads for a few seconds,
+    which shows phones an unstyled page. Asking for the stylesheet until it comes back a few
+    times running means the address is only shown once it works properly.
+    """
+    print("Waiting for the address to start working...")
+    in_a_row = 0
+    for _ in range(limit):
+        try:
+            with urllib.request.urlopen(url + "/static/style.css", timeout=5) as response:
+                in_a_row = in_a_row + 1 if response.status == 200 else 0
+        except OSError:  # not reachable yet
+            in_a_row = 0
+        if in_a_row >= needed:
+            return
+        time.sleep(1)
+    print("The address is slow to start: if a phone shows a plain page, refresh it.")
+
+
 def watch_tunnel(tunnel):
     """Read cloudflared's output; once the tunnel is connected, show its address."""
     url = None
@@ -63,8 +86,8 @@ def watch_tunnel(tunnel):
             if match:
                 url = match.group(0)
         if url and "Registered tunnel connection" in line:
+            wait_until_reachable(url)
             show_address(url)
-            time.sleep(3)  # give the new address a moment to work everywhere
             webbrowser.open(url + "/classes/")
             break
     for _ in tunnel.stderr:  # keep draining, or cloudflared stalls on a full pipe

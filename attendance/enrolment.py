@@ -24,6 +24,8 @@ from .config import env_path
 from .db import connect
 from .recognition import (
     PROJECT_ROOT,
+    TOLERANCE,
+    face_distance,
     load_known_encodings,
     reload_known_encodings,
     save_known_encodings,
@@ -285,6 +287,31 @@ def variety_warning(name, encodings):
     return None
 
 
+def lookalike_warning(name, new_encodings, known):
+    """A note when these photos match somebody already enrolled under another name, or None.
+
+    The same person enrolled twice -- "Ali" and "Ali Khan", say -- is checked in under
+    whichever name happens to be the closer match, so their attendance ends up split
+    between two people. The check is the same one recognition makes: a distance within
+    TOLERANCE would be accepted as that person at the camera, so it is worth asking now.
+
+    It warns rather than refuses: twins and close relatives can genuinely match, and the
+    admin is the one who knows whether this is the same person.
+    """
+    matches = sorted(
+        other for other, encodings in known.items()
+        if other != name and encodings
+        and min(float(np.min(face_distance(encodings, new))) for new in new_encodings) <= TOLERANCE
+    )
+    if not matches:
+        return None
+    return (
+        f"These photos look like {', '.join(matches)}, who is already enrolled. If it is the "
+        "same person, remove one of the two names, or their attendance will be split "
+        "between them."
+    )
+
+
 def enrol(name, photos):
     """Add or extend a person. photos is a list of (filename, bytes).
 
@@ -337,14 +364,16 @@ def enrol(name, photos):
     # other writer wait out somebody else's upload.
     with encoding_write_lock():
         known = load_known_encodings()
-        known.setdefault(name, []).extend(encoding for _, _, encoding in accepted)
+        new_encodings = [encoding for _, _, encoding in accepted]
+        lookalike = lookalike_warning(name, new_encodings, known)
+        known.setdefault(name, []).extend(new_encodings)
         save_known_encodings(known)
         on_file = known[name]
 
     # judged on everything on file for this person, not just this upload: adding one more
     # angle to an already varied set is fine, and adding a fifth copy of the same shot is
     # not, and only the whole set can tell those apart
-    advice = variety_warning(name, on_file)
+    advice = " ".join(note for note in (lookalike, variety_warning(name, on_file)) if note) or None
 
     # so the person appears in the admin link dropdown straight away, rather than only
     # after they have been recognised once. Outside the lock deliberately -- this writes to

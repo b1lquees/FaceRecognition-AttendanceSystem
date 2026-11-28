@@ -13,6 +13,7 @@ from attendance.enrolment import (
     encode_photo,
     encoding_write_lock,
     enrol,
+    lookalike_warning,
     remove_person,
     spread,
     validate_name,
@@ -460,3 +461,39 @@ def test_two_enrolments_at_once_do_not_lose_one(temp_db, storage, monkeypatch):
     assert failures == []
     assert sorted(load_known_encodings(recognition.ENCODINGS_FILE)) == ["Alice", "Bob"]
 
+
+
+# --- the same person enrolled twice ---------------------------------------------------
+#
+# "Ali" and "Ali Khan" for one student splits their attendance between two names, checked
+# in under whichever happens to be the closer match. Nothing else would ever point it out.
+
+def test_photos_matching_someone_else_are_called_out():
+    known = {"Ali": [unit(0)], "Sara": [unit(0.9, axis=2)]}
+
+    advice = lookalike_warning("Ali Khan", [unit(0.2)], known)
+
+    assert advice is not None
+    assert "Ali" in advice and "Sara" not in advice
+
+
+def test_a_different_person_draws_no_comment():
+    known = {"Ali": [unit(0)]}
+    assert lookalike_warning("Sara", [unit(0.9)], known) is None
+
+
+def test_adding_photos_to_the_same_name_is_not_a_lookalike():
+    known = {"Ali": [unit(0)]}
+    assert lookalike_warning("Ali", [unit(0.1)], known) is None
+
+
+def test_enrolling_a_lookalike_warns_but_still_enrols(temp_db, storage, monkeypatch):
+    save_known_encodings({"Ali": [unit(0)]}, recognition.ENCODINGS_FILE)
+    faces = iter([unit(0.2), unit(0.5, axis=3)])
+    monkeypatch.setattr(enrolment, "encode_photo", lambda data, filename="": next(faces))
+
+    name, added, problems, advice = enrol("Ali Khan", [("a.jpg", b"x"), ("b.jpg", b"y")])
+
+    assert added == 2
+    assert "look like Ali" in advice
+    assert "Ali Khan" in load_known_encodings(recognition.ENCODINGS_FILE)

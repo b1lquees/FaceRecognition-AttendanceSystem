@@ -27,10 +27,12 @@ remaining limitation is how a gap gets deployed as a feature.
 | Injected script | CSP with a per-response `script-src 'nonce-…'` | `style-src` still allows inline styles, so injected CSS is not covered |
 | Photograph or screen held to the camera | Liveness gate runs **before** recognition, so a spoof is never identified | Ships disabled, and on the camera measured here it has to stay off — see [liveness calibration](liveness-calibration.md) |
 | One person marked present by another | `KIOSK_MODE=0` refuses any face that is not the signed-in account's linked person | Kiosk mode never consults the session — that is what it is for |
-| Check-in from somewhere other than the camera | `CHECKIN_NETWORKS` refuses frames from outside the listed CIDRs, before decoding anything | A VPN back into those networks passes: a policy control, not proof of presence |
+| Check-in from somewhere other than the classroom | During a class, a phone must scan the code on the classroom screen (it changes every 30 seconds, no grace period) and show the signed-in student's face within 15 seconds. `CHECKIN_NETWORKS` can also refuse frames from outside listed CIDRs | A classmate in the room can show the screen to someone at home over a video call. Outside a class, phone check-in needs no code. A VPN passes `CHECKIN_NETWORKS` |
+| Forwarded or guessed class code | One scan gives one check-in; 10 code attempts a minute per account; a wrong code is audited (`checkin.bad_code`) | Within its 30 seconds a code works for anyone in the room who scans it, which is the point |
 | Spoofed client address | `TRUSTED_PROXY_HOPS` trusts only as many `X-Forwarded-For` hops as you actually run | Set higher than the real number and any client can claim any address |
 | Recognition CPU exhausted by frames | 60 frames a minute on `/recognize`, per address in kiosk mode and per account in personal mode | Same in-memory counters, capped at 10,000 and LRU-evicted |
 | Quiet misuse of an admin account | Audit trail records who did it and from where | The log is only as durable as wherever `LOG_FILE` points |
+| The same person enrolled under two names | Enrolment warns when new photos match someone already enrolled within `TOLERANCE` | A warning, not a refusal (twins match too): the admin decides |
 | Loss of the register and the enrolled faces | Documented snapshot and restore — see [backup and restore](backup-restore.md) | The backup is biometric data and inherits every obligation the live system has |
 | Unattended admin session at the door | The station signs in as a `viewer`, which needs no admin rights | Nothing enforces it; it is a deployment choice somebody has to make correctly |
 
@@ -81,9 +83,10 @@ people's presence to anyone able to point a webcam at them.
 > Neither mode defends against a **photograph** of the right person — see
 > [Anti-spoofing](../README.md#anti-spoofing).
 
-> Personal mode is stronger on *who* and weaker on *where*: the account holder can check
-> themselves in from anywhere they can reach the site, and neither recognition nor liveness
-> can tell. See [Where a check-in may come from](#where-a-check-in-may-come-from).
+> Personal mode is stronger on *who* and weaker on *where*. During a class the code on the
+> classroom screen ties a check-in to being able to see that screen; outside a class, the
+> account holder can check in from anywhere they can reach the site. See
+> [Where a check-in may come from](#where-a-check-in-may-come-from).
 
 ## Where a check-in may come from
 
@@ -96,7 +99,27 @@ tolerance. Every control in the system returns the right answer.
 
 Nothing added to the recognition path fixes that. A stricter `TOLERANCE` does not, because
 it is the right person; the liveness gate does not, because it is a live face. The check
-that is missing is a different kind of check, so it comes from outside:
+that is missing is a different kind of check, so it comes from outside.
+
+### During a class: the code on the classroom screen
+
+When a teacher starts a class, the classroom screen shows a QR code and the same code as
+six digits. It is a standard TOTP, changing every 30 seconds, and only the current one is
+accepted. A phone must send it (`/checkin/code`) and then, within 15 seconds, a frame whose
+face is the signed-in student's. One scan gives one check-in. So a check-in during a class
+proves the student could see the classroom screen within the last half-minute, and was at
+their phone straight afterwards: a code forwarded to someone at home expires before it is
+any use, and a photo of last week's screen is a different class.
+
+What it does not prove is that the student is *in* the room. A classmate who is there can
+point a video call at the screen, and the student at home can read the code off the call
+and check in within the limits — right person, live face, current code. Nothing in the
+request can tell, and recognition and liveness both answer correctly. It narrows the
+attack from *anyone, anywhere, any time* to *needs an accomplice in the room, live, during
+the class*, which is a change of category rather than a solved problem.
+
+### Any time: the network
+
 
 ```bash
 CHECKIN_NETWORKS=10.0.0.0/8,192.168.1.0/24
@@ -124,6 +147,11 @@ Three failure modes to watch for:
 - **A typo stops the application starting.** An unparseable entry is a hard error rather
   than a fallback, because falling back would silently remove the restriction — the one
   direction this setting must never fail in.
+
+Behind the Cloudflare tunnel that `start.bat` opens, every phone arrives from the public
+internet — mobile data, home broadband — so there is no local network to list, and the class
+code above is the location control. (There, waitress takes each phone's address from the
+headers cloudflared adds, so `TRUSTED_PROXY_HOPS` stays at 0.)
 
 > Even with it, a phone on the office wifi plus the right face is a valid check-in from the
 > car park. A browser webcam can prove who is in front of it; proving where it is standing

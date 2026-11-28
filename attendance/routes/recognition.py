@@ -87,8 +87,9 @@ def checkin_client_key():
     and a username that looked like one would share a counter with it.
 
     Be clear about what this does NOT do: it stops the LIMITER being the thing that
-    breaks, and it creates no capacity. Recognition is ~1.2s of CPU in the request thread,
-    so the server answers roughly 100 frames a minute in total while one browser posts 40.
+    breaks, and it creates no capacity. Recognition is ~0.25s of CPU per face in the request
+    thread, so a 2-core machine answers about 170 frames a minute in total
+    (scripts/load_test.py measures yours) while one browser posts 40.
     Personal mode past a couple of concurrent users runs out of machine long before it
     runs out of allowance, and the answer to that is workers, hardware, or a longer
     interval in camera.html -- never a bigger number here.
@@ -228,8 +229,8 @@ def camera():
 # anyone who could reach the server could mark attendance without ever logging in.
 #
 # And a limit, because this is by far the most expensive thing the server does: detection
-# plus encoding is around 1.2 seconds of CPU per frame, and it runs in the request thread.
-# Two gunicorn workers therefore answer well under two of these a second, so a single
+# plus encoding is around a quarter of a second of CPU per face, and it runs in the request
+# thread. A 2-core machine therefore answers only about three of these a second, so a single
 # signed-in account calling it in a loop can occupy the whole server and leave the camera
 # by the door unable to check anybody in. Every other limit here guards a password or an
 # inbox; this one guards the CPU.
@@ -248,13 +249,13 @@ def camera():
 # mode, where twenty people on one office gateway are twenty separate check-ins and not one
 # client doing twenty times the work, which is why that mode keys on the account instead.
 #
-# Do not simply raise it in either mode. Two workers at ~1.2s a frame is about 100 frames a
-# minute for the whole server, and one camera is already 40 of them, so the machine supports
-# roughly two cameras at full rate and no more. A limit of 120 would let a single client ask
-# for more than the server can deliver, at which point it has stopped guarding the CPU and
-# is only decorating the code. A second camera -- or a twentieth account -- is a capacity
-# question: more workers, better hardware, or a longer interval in camera.html, never a
-# bigger number here.
+# Do not simply raise it in either mode. A 2-core machine manages about 170 frames a minute
+# for the whole server (measured with scripts/load_test.py), and one camera is already 40 of
+# them, so it supports roughly four cameras at full rate and no more. A limit of 120 would let
+# a single client ask for more than the server can deliver, at which point it has stopped
+# guarding the CPU and is only decorating the code. A fifth camera -- or a fortieth account --
+# is a capacity question: more cores, better hardware, or a longer interval in camera.html,
+# never a bigger number here.
 @rate_limit(limit=60, per_seconds=60, as_json=True, key=checkin_client_key)
 def recognize():
     # Before the body is looked at, let alone decoded. A refusal here should cost nothing,

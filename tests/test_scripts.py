@@ -33,9 +33,11 @@ PARSES_ARGUMENTS = [
     "collect_faces.py",
     "create_user.py",
     "demo.py",
+    "load_test.py",
     "peek_db.py",
     "reset_attendance.py",
     "reset_password.py",
+    "setup_class.py",
 ]
 
 

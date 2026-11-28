@@ -11,7 +11,7 @@ browser's, so nothing needs installing on the machine people walk up to: frames 
 to the server, matched against enrolled faces, and written to a register that
 administrators can export as CSV.
 
-**Status:** working and tested, actively developed. 628 automated tests run on every push,
+**Status:** working and tested, actively developed. 645 automated tests run on every push,
 on Ubuntu and Windows, alongside `ruff` and a job that builds the Docker image and starts
 it. Anti-spoofing is measured but disabled — see [Anti-spoofing](#anti-spoofing) — and the
 constraints under [Known limitations](#known-limitations) are worth reading before
@@ -288,10 +288,15 @@ are here to size a deployment, not to claim throughput: all of them describe one
 | Archive page size | 50 rows | Paged and searched in SQL rather than in the browser |
 | Worker timeout | 60 s | gunicorn `--timeout`, which reaps a worker wedged mid-request |
 | Session lifetime | 7 days | An absolute ceiling from login; traffic does not extend it |
+| A class at once | 40 phones in ~15 s on 2 CPU cores | `scripts/load_test.py`: 40 students sending the class code and a face at the same moment; one alone takes ~0.4 s |
 
 Recognition runs synchronously in the request thread, so that ~0.25 seconds is a worker
-occupied. One camera posting a frame every 1.5 seconds fits comfortably; concurrent users
-do not — see [Known limitations](#known-limitations).
+occupied, and the CPU is the limit. On a 2-core machine, 40 students checking in at the
+same moment are all done in about 15 seconds; the slowest waits close to the 15-second
+limit between scanning the code and the face check, so a bigger class at once, or a
+slower machine, means a few phones are asked to scan again. Real classes do not all scan
+in the same second, and more cores help directly. Run `python scripts/load_test.py` to
+measure your own machine.
 
 ## Usage
 
@@ -300,7 +305,13 @@ do not — see [Known limitations](#known-limitations).
 The **Enrol** page at `/admin/enrol` takes photo uploads and makes someone recognisable
 immediately, with no restart. Several photos at different angles and in different lighting
 matter far more than one perfect one, and the page says so when an uploaded set is too
-similar to teach the recogniser anything.
+similar to teach the recogniser anything. It also warns when the photos match somebody
+already enrolled under another name, because one person enrolled twice gets their
+attendance split between the two names.
+
+To set up a whole class at once — accounts, photos and the links between them — use
+`scripts/setup_class.py` with a CSV of names and usernames and a folder of photos per
+student; see the top of that file.
 
 To enrol from the shell instead, create one folder per person under `known_faces/`:
 
@@ -682,6 +693,8 @@ is why the project has to be installed with `pip install -e .`.
 | `calibrate_liveness.py` | Measure the anti-spoofing model, and price thresholds with `--compare` |
 | `collect_faces.py` | Save real and spoof face crops for training an anti-spoofing model |
 | `benchmark_lfw.py` | Compare dlib with ArcFace on the LFW benchmark (needs `pip install insightface`) |
+| `setup_class.py` | Set up a whole class from a CSV and photo folders: accounts, enrolment, links |
+| `load_test.py` | Time a whole class checking in at once, on a throwaway copy of the app |
 
 ### Tests
 
@@ -693,7 +706,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-628 tests covering attendance de-duplication, recognition of unknown faces, password
+645 tests covering attendance de-duplication, recognition of unknown faces, password
 hashing, route-level authentication and authorisation, schema migrations, timezone
 handling, enrolment validation, the stylesheet's own invariants and the calibration
 arithmetic. Every test runs against a throwaway database in pytest's temporary directory,
@@ -732,9 +745,10 @@ matters.
   room. Outside a class, phone check-in has no code at all, so it proves only who, not
   where. See
   [Where a check-in may come from](docs/security.md#where-a-check-in-may-come-from).
-- **Recognition runs synchronously in the request thread.** About 0.25 s per face on a
-  laptop CPU. Fine for a classroom; a whole school checking in at once would need more
-  workers or a job queue.
+- **Recognition runs synchronously in the request thread.** About 0.25 s per face, and the
+  CPU is the limit: 40 phones at the same moment take about 15 seconds on 2 cores, close to
+  the 15-second scan-to-face limit (see [Performance](#performance)). Fine for a classroom;
+  a whole school checking in at once would need more cores or a job queue.
 - **SQLite suits a single classroom-sized deployment.** WAL mode and a busy timeout remove
   the everyday contention, but this is not a multi-site or high-concurrency design.
 - **Recognition accuracy depends heavily on enrolment photo quality.**
