@@ -23,7 +23,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-from .config import env_path
+from .config import env_int, env_path
 
 # ARCFACE_DIR lets the container keep the models outside the package; unset, they sit in
 # attendance/models/arcface/, where scripts/download_arcface.py puts them
@@ -48,6 +48,11 @@ ALIGNED_SIZE = 112
 TEMPLATE = np.array([[38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
                      [41.5493, 92.3655], [70.7299, 92.2041]], dtype=np.float32)
 
+# CPU threads each model may use per face; 0 lets onnxruntime decide (all cores). The server
+# handles several students at once, each of which would then try to use every core, so with
+# a full class 1 can be faster overall. scripts/load_test.py measures it: set ARCFACE_THREADS=1.
+THREADS = env_int("ARCFACE_THREADS", default=0)
+
 _sessions = {}  # model file -> loaded onnxruntime session, filled on first use
 
 
@@ -62,7 +67,11 @@ def session(path):
             raise ArcFaceUnavailable(
                 f"{path} not found. Run: python scripts/download_arcface.py"
             )
-        _sessions[path] = ort.InferenceSession(str(path), providers=["CPUExecutionProvider"])
+        options = ort.SessionOptions()
+        if THREADS:
+            options.intra_op_num_threads = THREADS
+        _sessions[path] = ort.InferenceSession(str(path), options,
+                                               providers=["CPUExecutionProvider"])
     return _sessions[path]
 
 

@@ -111,6 +111,9 @@ def main():
     os.environ["APP_ENV"] = "production"
     os.environ["FLASK_SECRET_KEY"] = KEY_FILE.read_text().strip()
     os.environ["KIOSK_MODE"] = "1" if args.mode == "kiosk" else "0"
+    # 2 CPU cores per face check: measured with scripts/load_test.py on an 8-core laptop, 39
+    # students at once finished in 9.3 s, against 12.2 s letting every check use every core
+    os.environ.setdefault("ARCFACE_THREADS", "2")
     print(f"Mode: {'door camera (kiosk)' if args.mode == 'kiosk' else 'phone check-in'}")
 
     # 3. the tunnel, in the background
