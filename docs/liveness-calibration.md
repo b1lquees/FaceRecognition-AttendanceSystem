@@ -1,7 +1,7 @@
 # Liveness calibration
 
-The anti-spoofing gate ([facenox/face-antispoof-onnx](https://github.com/facenox/face-antispoof-onnx),
-Apache 2.0) scores a face and refuses it if the score falls below `LIVENESS_THRESHOLD`.
+The anti-spoofing gate (our MobileNetV2 fine-tuned on LCC-FASD, `antispoof_ours.onnx`;
+the results further down were measured with the facenox model it replaced) scores a face and refuses it if the score falls below `LIVENESS_THRESHOLD`.
 The threshold is the whole feature: too low and it admits the photograph it exists to
 refuse, too high and it refuses the person standing there. It depends on your camera and
 your lighting, which is why the feature ships disabled and why this page is a measurement

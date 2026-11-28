@@ -4,11 +4,15 @@ Recognition alone cannot tell the difference: a printed photo of an enrolled per
 produces the same ArcFace encoding the real person does, so it checks them in. This module
 is the gate that stops that.
 
-The model is from facenox/face-antispoof-onnx (Apache 2.0, licence text alongside the
-weights in models/). It takes a 128x128 RGB crop of a face and returns two logits,
-[real, spoof]; the decision is the difference between them against a threshold.
+The model is our own: MobileNetV2, pretrained on ImageNet and fine-tuned on the LCC-FASD
+anti-spoofing dataset (notebooks/antispoof_training.ipynb). It replaced the pretrained
+facenox/face-antispoof-onnx model (Apache 2.0, still in models/ with its licence), which
+let 48% of the test set's fakes through against our model's 12%. It takes a 128x128 RGB
+crop of a face and returns two logits, [real, spoof]; the decision is the difference
+between them against a threshold.
 
-Preprocessing here is a deliberate port of that project's own inference code, not a
+Our model was built to take exactly what this module gives it, so it drops in for the
+facenox one. Preprocessing here is a deliberate port of facenox's own inference code, not a
 reimplementation from a description. That distinction matters: an earlier attempt with a
 different model used preprocessing taken from a model card and produced a classifier that
 returned the same answer for a face, a black square and random noise. The lesson is that
@@ -24,17 +28,17 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-MODEL_PATH = Path(__file__).resolve().parent / "models" / "antispoof.onnx"
+MODEL_PATH = Path(__file__).resolve().parent / "models" / "antispoof_ours.onnx"
 
 # pinned so a swapped or truncated file is caught rather than silently changing what the
 # gate does. checked on load, not on every call.
-MODEL_SHA256 = "af2381b88f38769222ed93379e12444e2a50814575de1c46170de570c55a42b6"
+MODEL_SHA256 = "9e2d93022c8a47a47943ad08910f9de603bccb42714a6ef1ac30b9a8900f3667"
 
 INPUT_SIZE = 128
 
 # the face box is squared off and enlarged by this before being fed in. not a free
-# parameter: it is what the model was trained with, and changing it degrades accuracy
-# without ever looking broken.
+# parameter: facenox was trained with it, and for our model it is also the crop that best
+# separated real faces from phone screens on the laptop webcam (tried against 1.0 and 1.2).
 BBOX_EXPANSION = 1.5
 
 _session = None
