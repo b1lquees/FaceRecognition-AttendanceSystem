@@ -45,3 +45,4 @@ qrcode==8.2 # draws the classroom check-in QR code (as SVG, so no image library 
 # arbitrary code, so it is a development tool only -- see the note at the top of
 # wsgi.py. Linux only, which is what the container runs; on Windows use waitress.
 gunicorn==23.0.0
+waitress==3.0.2 # the production server on Windows (scripts/serve_https.bat)

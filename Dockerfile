@@ -35,6 +35,11 @@ COPY . .
 # leaving it behind puts a root-owned directory in a tree the runtime user cannot write.
 RUN pip install --no-cache-dir --no-deps .     && rm -rf attendance.egg-info
 
+# The ArcFace models are downloaded into the image, not kept in git (one is 166 MB). They
+# live outside the installed package, at ARCFACE_DIR, which attendance/arcface.py reads.
+ENV ARCFACE_DIR=/opt/arcface
+RUN python scripts/download_arcface.py
+
 # Everything the application writes lives under /data and nothing else does. The image
 # deliberately contains no data at all -- .dockerignore keeps the database, the photos
 # and the encoding cache out of the build context -- so a container starts empty and
@@ -60,6 +65,7 @@ ENV ATTENDANCE_DB=/data/attendance.db \
 # Docker seeds it. A *bind* mount inherits nothing -- it arrives owned by whatever owns
 # the host directory -- so `-v ./data:/data` fails on the first write unless the host
 # directory is chowned to 10001. Named volume unless you have a reason.
+
 RUN useradd --create-home --uid 10001 attendance \
     && mkdir -p /data \
     && chown -R attendance:attendance /data

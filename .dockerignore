@@ -4,6 +4,8 @@ attendance.db
 attendance.db-wal
 attendance.db-shm
 encodings.npz
+# the ArcFace models: the image downloads its own copy (see the Dockerfile)
+attendance/models/arcface/
 venv/
 .git/
 **/__pycache__

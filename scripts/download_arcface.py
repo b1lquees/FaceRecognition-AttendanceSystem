@@ -13,6 +13,7 @@ course project is.
 """
 
 import hashlib  # computes the checksum of each file
+import os  # reads ARCFACE_DIR, if set
 import shutil  # copies a file out of the zip in chunks
 import tempfile  # a temporary place for the zip while it downloads
 import urllib.request  # downloads the zip
@@ -21,8 +22,10 @@ from pathlib import Path
 
 URL = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_l.zip"
 
-# where the app looks for the models (attendance/arcface.py reads the same folder)
-MODEL_DIR = Path(__file__).resolve().parent.parent / "attendance" / "models" / "arcface"
+# where the app looks for the models (attendance/arcface.py reads the same folder, including
+# ARCFACE_DIR, which the Docker image sets)
+MODEL_DIR = Path(os.environ.get("ARCFACE_DIR", "").strip() or
+                 Path(__file__).resolve().parent.parent / "attendance" / "models" / "arcface")
 
 # file name -> its SHA-256 checksum. If even one byte differs the checksum changes completely,
 # so a match means this is exactly the file the app was built and tested with.

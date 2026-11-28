@@ -23,7 +23,11 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 
-MODEL_DIR = Path(__file__).resolve().parent / "models" / "arcface"
+from .config import env_path
+
+# ARCFACE_DIR lets the container keep the models outside the package; unset, they sit in
+# attendance/models/arcface/, where scripts/download_arcface.py puts them
+MODEL_DIR = env_path("ARCFACE_DIR", Path(__file__).resolve().parent / "models" / "arcface")
 DETECTOR_FILE = MODEL_DIR / "det_10g.onnx"
 RECOGNISER_FILE = MODEL_DIR / "w600k_r50.onnx"
 

@@ -507,6 +507,32 @@ export FLASK_SECRET_KEY=$(python -c "import secrets; print(secrets.token_hex(32)
 
 ## Deployment
 
+### For a class demo: phones over HTTPS, from a Windows laptop
+
+Phone cameras only work on `https://` pages, so phones cannot use the laptop's plain
+`http://` address. The quickest way to HTTPS is a free
+[Cloudflare quick tunnel](https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/do-more-with-tunnels/trycloudflare/):
+it gives the laptop a temporary `https://….trycloudflare.com` address with a real
+certificate, so any phone on any network opens it with no warning and no setup.
+
+Install `cloudflared` once (`winget install --id Cloudflare.cloudflared`), then in two
+Command Prompts, with the venv on in the first:
+
+```bat
+scripts\serve_https.bat
+```
+
+```bat
+cloudflared tunnel --url http://localhost:5000
+```
+
+`serve_https.bat` runs the app the way a deployment should: production settings (no
+debugger, login cookie over HTTPS only), a fresh secret key, waitress instead of Flask's
+development server, listening on `127.0.0.1` only, and trusting cloudflared's headers for
+each phone's address. It starts in phone check-in mode; `set KIOSK_MODE=1` first for the
+door camera. The tunnel address changes every time `cloudflared` starts, and while both
+are running anyone with it can reach the sign-in page, so stop both after the demo.
+
 ### With compose (recommended)
 
 [`docker-compose.yml`](docker-compose.yml) runs the application behind
@@ -643,6 +669,7 @@ is why the project has to be installed with `pip install -e .`.
 | `init_db.py` | Create the tables (safe to re-run) |
 | `create_user.py` | Add an account, prompting for the password |
 | `download_arcface.py` | Download the two ArcFace model files (run once per computer) |
+| `serve_https.bat` | Windows: run the app for phones over HTTPS, with `cloudflared` (see [Deployment](#deployment)) |
 | `build_encodings.py` | Rebuild the encoding cache from `known_faces/` (run after switching to ArcFace, too) |
 | `recognise_live.py` | Desktop webcam viewer, same recognition without a browser |
 | `peek_db.py` | Print every attendance row |
