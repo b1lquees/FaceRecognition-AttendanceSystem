@@ -150,6 +150,16 @@ def run_migrations(cursor):
     so it cannot add a column to a database that predates it. Anything that changes an
     existing table has to go here instead.
     """
+    # class-code scans that have already been used for a check-in. The scan itself lives in
+    # the signed session cookie, which the server cannot take back: a phone that kept an old
+    # copy of the cookie could otherwise send it again within its 15 seconds. Recording each
+    # scan's random id when it is used makes "one scan, one check-in" true on the server.
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS used_scans (
+        nonce TEXT PRIMARY KEY,
+        used_at TEXT NOT NULL
+    )
+    """)
     # signup from the web creates accounts that an admin has to approve before they can log in, so
     # users needs a flag saying whether that has happened.
     if not column_exists(cursor, "users", "is_approved"):

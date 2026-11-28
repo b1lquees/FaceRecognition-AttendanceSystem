@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}{{ cls.course }}: authenticator{% endblock %}
+{% set active_page = 'classes' %}
+
+{% block content %}
+<header>
+    <div class="eyebrow">Teacher only</div>
+    <h1>{{ cls.course }}: add to your authenticator app</h1>
+    <p class="subtitle">Scan this with Google Authenticator or Microsoft Authenticator</p>
+</header>
+
+<div class="card">
+    <div class="card-body class-checkin">
+        <div class="class-qr class-qr-small">{{ teacher_qr }}</div>
+        <p class="note">
+            Your phone will then show the same 6-digit code as the classroom screen, so you can
+            read it out if the projector is off. <strong>Don't show this page on the
+            projector or share it:</strong> this QR holds the class's secret, and anyone who
+            scans it can make every code for this class from anywhere.
+        </p>
+    </div>
+</div>
+
+<a class="btn" href="{{ url_for('classes.show', session_id=cls.id) }}">Back to the class screen</a>
+{% endblock %}

@@ -134,3 +134,20 @@ def test_the_door_camera_needs_no_code_and_records_the_class(
 
     assert post_frame(client, csrf, frame).get_json()["status"] == "checked_in"
     assert class_of_last_record() == class_id
+
+
+def test_a_replayed_scan_is_refused(client, login, csrf, frame, recognises, app):
+    # a phone that keeps its old cookie after checking in must not get a second go with it
+    app.config["KIOSK_MODE"] = False
+    sign_in_as(login, "alice", "Alice")
+    recognises("Alice")
+    class_id = start_session("AI 301", minutes=60)
+    scan(client, csrf, qr_text(class_id))
+    with client.session_transaction() as cookie:
+        kept = dict(cookie[CLASS_SCAN_KEY])  # the scan, as the phone holds it
+
+    assert post_frame(client, csrf, frame).get_json()["status"] == "checked_in"
+
+    with client.session_transaction() as cookie:
+        cookie[CLASS_SCAN_KEY] = kept  # put the used scan back
+    assert post_frame(client, csrf, frame).get_json()["status"] == "code_required"

@@ -103,6 +103,23 @@ def seconds_left():
     return 30 - int(time.time()) % 30
 
 
+def scan_used(nonce):
+    """Whether this class-code scan has already been used for a check-in."""
+    conn = connect()
+    row = conn.execute("SELECT 1 FROM used_scans WHERE nonce = ?", (nonce,)).fetchone()
+    conn.close()
+    return row is not None
+
+
+def use_scan(nonce):
+    """Record that this scan has been used, so a replayed copy of it is refused."""
+    conn = connect()
+    conn.execute("INSERT OR IGNORE INTO used_scans (nonce, used_at) VALUES (?, ?)",
+                 (nonce, stamp()))
+    conn.commit()
+    conn.close()
+
+
 def authenticator_link(session):
     """The otpauth:// link that the QR code holds; scanning it adds the class to the app."""
     return pyotp.TOTP(session["secret"]).provisioning_uri(

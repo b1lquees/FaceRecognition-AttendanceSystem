@@ -105,3 +105,37 @@ def test_an_ended_class_shows_no_code(client, login, csrf):
     response = client.get(f"/classes/{session_id}/code")
     assert response.status_code == 410
     assert "code" not in response.get_json()
+
+
+def test_the_class_secret_is_never_on_the_projector_page(client, login, csrf):
+    # the authenticator QR holds the secret that makes every code: a photo of it would let
+    # anyone check in from anywhere for the whole class
+    login(username="teacher", role="admin")
+    start(client, csrf)
+    session = current_session()
+
+    page = client.get(f"/classes/{session['id']}").get_data(as_text=True)
+
+    assert session["secret"] not in page
+    assert "otpauth" not in page
+    assert f"/classes/{session['id']}/authenticator" in page  # only a link to it
+
+
+def test_the_authenticator_page_is_for_the_teacher_only(client, login, csrf):
+    login(username="teacher", role="admin")
+    start(client, csrf)
+    session_id = current_session()["id"]
+
+    response = client.get(f"/classes/{session_id}/authenticator")
+    assert response.status_code == 200
+    assert "<svg" in response.get_data(as_text=True)
+    assert response.headers["Cache-Control"] == "no-store"
+
+    client.post(f"/classes/{session_id}/end", data={"_csrf_token": csrf})
+    assert client.get(f"/classes/{session_id}/authenticator").status_code == 404
+
+    client.get("/logout")
+    with client.session_transaction() as cookie:
+        cookie["_csrf_token"] = csrf  # signing out cleared it, and signing in needs it
+    login(username="student", role="viewer")
+    assert client.get(f"/classes/{session_id}/authenticator").status_code == 403

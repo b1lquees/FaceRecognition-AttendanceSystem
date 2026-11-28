@@ -1,7 +1,7 @@
 """Deciding whether a detected face belongs to a live person or a photograph.
 
 Recognition alone cannot tell the difference: a printed photo of an enrolled person
-produces the same 128-d encoding the real person does, so it checks them in. This module
+produces the same ArcFace encoding the real person does, so it checks them in. This module
 is the gate that stops that.
 
 The model is from facenox/face-antispoof-onnx (Apache 2.0, licence text alongside the
@@ -70,7 +70,7 @@ def get_session():
 def crop_face(rgb_frame, face_location, expansion=BBOX_EXPANSION):
     """Square crop around the face, enlarged, with edges reflected rather than clipped.
 
-    face_location is face_recognition's (top, right, bottom, left).
+    face_location is (top, right, bottom, left), the box arcface.detect() returns.
 
     Reflecting at the edges rather than sliding the box back inside the frame is what
     lets this work on a close-up portrait. The face is kept centred in the crop, which is

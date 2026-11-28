@@ -7,6 +7,7 @@ from flask import (
     abort,
     flash,
     jsonify,
+    make_response,
     redirect,
     render_template,
     request,
@@ -93,8 +94,26 @@ def show(session_id):
         code=current_code(class_session),
         seconds=seconds_left(),
         student_qr=qr_svg(student_qr_text(class_session)),
-        teacher_qr=qr_svg(authenticator_link(class_session)),
     )
+
+
+@classes_bp.route("/<int:session_id>/authenticator")
+@admin_required
+def authenticator(session_id):
+    # The QR that adds the class to the teacher's authenticator app holds the class's secret
+    # itself, and with the secret anyone can make every code for the whole class, from
+    # anywhere. So it lives on its own page for the teacher's own laptop or phone, never on
+    # the projector page everybody can photograph.
+    class_session = get_or_404(session_id)
+    if not is_running(class_session):
+        abort(404)
+    audit("class.authenticator_shown", target_id=session_id)
+    response = make_response(render_template(
+        "class_authenticator.html", cls=class_session,
+        teacher_qr=qr_svg(authenticator_link(class_session)),
+    ))
+    response.headers["Cache-Control"] = "no-store"  # not left behind in the browser cache
+    return response
 
 
 @classes_bp.route("/<int:session_id>/code")

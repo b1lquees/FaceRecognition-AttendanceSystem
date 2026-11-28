@@ -11,7 +11,7 @@ browser's, so nothing needs installing on the machine people walk up to: frames 
 to the server, matched against enrolled faces, and written to a register that
 administrators can export as CSV.
 
-**Status:** working and tested, actively developed. 645 automated tests run on every push,
+**Status:** working and tested, actively developed. 649 automated tests run on every push,
 on Ubuntu and Windows, alongside `ruff` and a job that builds the Docker image and starts
 it. Anti-spoofing is measured but disabled — see [Anti-spoofing](#anti-spoofing) — and the
 constraints under [Known limitations](#known-limitations) are worth reading before
@@ -28,6 +28,7 @@ deploying this anywhere that matters.
 - [Performance](#performance)
 - [Usage](#usage)
 - [Security](#security)
+- [Privacy](#privacy)
 - [Anti-spoofing](#anti-spoofing)
 - [Configuration](#configuration)
 - [Deployment](#deployment)
@@ -388,9 +389,12 @@ link each account to an enrolled person at `/admin/users`.
 | The face is compared with the signed-in student only (1:1) | Two similar-looking classmates cannot be confused, and a refusal reveals nobody else |
 | 10 code attempts a minute per account | A 6-digit code cannot be guessed before it changes |
 
-The codes are standard TOTP, so the teacher can scan the small QR on the classroom screen
-into Google Authenticator or Microsoft Authenticator and read the code from their phone if
-the projector is off. Thirty seconds is the step those apps support.
+The codes are standard TOTP, so the teacher can add the class to Google Authenticator or
+Microsoft Authenticator and read the code from their phone if the projector is off: the
+class screen links to a separate page with that QR, to open on the teacher's own device.
+It is never shown on the projector, because it holds the class's secret, and anyone with
+the secret can make every code for that class from anywhere. Thirty seconds is the step
+those apps support.
 
 In kiosk mode the door camera needs no code, because it is fixed in the room; check-ins
 made while a class is running are saved under that class. With no class running,
@@ -449,6 +453,21 @@ that are easy to get wrong are in **[docs/security.md](docs/security.md)**.
 
 A control-by-control threat model, each row paired with what it still leaves open, is at
 [docs/security.md#threat-model](docs/security.md#threat-model).
+
+## Privacy
+
+Face images and face encodings are biometric data about real people, so:
+
+- **Consent first.** Enrol only people who have agreed to it, and tell them what is kept.
+- **Nothing in git.** Photos (`known_faces/`), encodings and the database are gitignored and
+  stay on the machine running the app; the repository never holds anyone's face.
+- **What is kept:** each enrolled person's photos and their 512-number encodings, and for
+  each check-in the name, times, class and match distance. Accounts keep a password hash,
+  never the password.
+- **Deleting someone:** **Enrol → Remove** deletes their photos and face data at once, so
+  they are no longer recognised. Their past attendance rows stay, as the register's history;
+  `scripts/reset_attendance.py NAME` deletes those too.
+- **Backups are biometric data as well** — see [docs/backup-restore.md](docs/backup-restore.md).
 
 ## Anti-spoofing
 
@@ -706,7 +725,7 @@ pip install -r requirements-dev.txt
 pytest -v
 ```
 
-645 tests covering attendance de-duplication, recognition of unknown faces, password
+649 tests covering attendance de-duplication, recognition of unknown faces, password
 hashing, route-level authentication and authorisation, schema migrations, timezone
 handling, enrolment validation, the stylesheet's own invariants and the calibration
 arithmetic. Every test runs against a throwaway database in pytest's temporary directory,

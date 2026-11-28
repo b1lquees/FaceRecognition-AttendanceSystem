@@ -2,6 +2,7 @@
 
 import base64
 import binascii
+import secrets
 import time
 from ipaddress import ip_address
 
@@ -17,7 +18,7 @@ from ..decorators import login_required
 from ..liveness import LivenessUnavailable, is_live
 from ..ratelimit import client_key, rate_limit
 from ..recognition import get_known_encodings, identify_face, verify_face
-from ..sessions_db import current_session, verify_code
+from ..sessions_db import current_session, scan_used, use_scan, verify_code
 
 # a blueprint keeps the recognition routes in their own module rather than one flat app file
 recognition_bp = Blueprint("recognition", __name__)
@@ -169,7 +170,8 @@ def class_gate():
         return running["id"], None
 
     scan = session.get(CLASS_SCAN_KEY)
-    if not scan or scan.get("session_id") != running["id"]:
+    if not scan or scan.get("session_id") != running["id"] or scan_used(scan.get("nonce", "")):
+        # no scan, a scan for another class, or a scan already used for a check-in
         return running["id"], result("code_required")
     if time.time() - scan.get("at", 0) > SCAN_TO_FACE_SECONDS:
         session.pop(CLASS_SCAN_KEY, None)  # stale: the student has to scan again
@@ -206,7 +208,9 @@ def checkin_code():
                         "error": "That code is wrong or has expired. Scan it again."}), 400
 
     # remember the scan in the signed session cookie; /recognize checks it next
-    session[CLASS_SCAN_KEY] = {"session_id": running["id"], "at": time.time()}
+    # nonce: a random id for this one scan, recorded once it is used (see use_scan)
+    session[CLASS_SCAN_KEY] = {"session_id": running["id"], "at": time.time(),
+                               "nonce": secrets.token_hex(16)}
     return jsonify({"status": "ok", "course": running["course"],
                     "seconds": SCAN_TO_FACE_SECONDS})
 
@@ -340,9 +344,13 @@ def recognize():
             handle_one_face(rgb_frame, location, landmarks, data.get("mode"), class_id)
         )
 
-    # one scan, one check-in: once the face has matched, the next check-in needs a new scan
+    # one scan, one check-in: once the face has matched, the next check-in needs a new scan.
+    # Recorded on the server as well as dropped from the cookie, because a phone could keep
+    # an old copy of the cookie and send it again.
     if class_id and any(item["status"] in MATCHED for item in outcomes):
-        session.pop(CLASS_SCAN_KEY, None)
+        scan = session.pop(CLASS_SCAN_KEY, None)
+        if scan and scan.get("nonce"):
+            use_scan(scan["nonce"])
 
     return jsonify({"status": summarise(outcomes), "results": outcomes})
 
@@ -369,6 +377,9 @@ def handle_one_face(rgb_frame, location, landmarks, mode, class_id=None):
             # fail closed. an anti-spoofing check that waves everyone through when it
             # breaks is worse than not having one, because it looks like it is working.
             current_app.logger.exception("liveness model unavailable")
+            # audited as well: with the gate switched on, a broken model refuses everyone,
+            # and the audit trail is where somebody looks to find out why
+            audit("liveness.error")
             return outcome("liveness_error")
 
         if not accepted:

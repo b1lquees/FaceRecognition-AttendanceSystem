@@ -38,18 +38,12 @@
     </div>
 </div>
 
-<div class="card">
-    <div class="card-head">
-        <span class="card-title">Teacher: add this class to your authenticator app</span>
-    </div>
-    <div class="card-body class-checkin">
-        <div class="class-qr class-qr-small">{{ teacher_qr }}</div>
-        <p class="note">
-            Scan with Google Authenticator or Microsoft Authenticator. Your phone will then show
-            the same code as this screen, so you can read it out if the projector is off.
-        </p>
-    </div>
-</div>
+{# only a link here: the authenticator QR holds the class secret, so it is never projected #}
+<p class="note">
+    Teacher: to read the code from Google or Microsoft Authenticator, open
+    <a href="{{ url_for('classes.authenticator', session_id=cls.id) }}">this page</a>
+    on your own laptop or phone, not on the projector.
+</p>
 
 {# a POST, not a link: ending a class changes data, and links can be followed by accident #}
 <form method="POST" action="{{ url_for('classes.end', session_id=cls.id) }}">
